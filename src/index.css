@@ -128,3 +128,12 @@
     @apply font-sans;
     }
 }
+
+/* Sembunyikan ikon mata bawaan Edge/IE dan Chrome di password field */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none !important;
+}
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+}

@@ -1,18 +1,25 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Login from './pages/login'
 import './App.css'
+
+function PlaceholderPage({ judul }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <p className="text-gray-400 text-lg">{judul} — Coming Soon</p>
+    </div>
+  )
+}
 
 function App() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-xl p-10 text-center max-w-md">
-        <h1 className="text-3xl font-bold text-gray-800 mb-3">
-          Niswar Finance AI
-        </h1>
-        <p className="text-gray-500 text-lg">Siap dibangun! 🚀</p>
-        <p className="text-sm text-indigo-400 mt-4">
-          React + Vite + Tailwind CSS v4 + shadcn/ui
-        </p>
-      </div>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register-type" element={<PlaceholderPage judul="Halaman Pilih Tipe Akun" />} />
+        <Route path="/dashboard" element={<PlaceholderPage judul="Dashboard" />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
