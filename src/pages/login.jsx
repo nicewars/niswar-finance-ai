@@ -4,42 +4,7 @@ import { Wallet, Eye, EyeOff } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-
-// Pattern dompet berulang memenuhi seluruh background
-function WalletPattern() {
-  const CELL = 105  // 48px ikon + 57px jarak
-  const COLS = 20
-  const ROWS = 16   // 320 ikon total
-
-  return (
-    <div
-      className="absolute inset-0 overflow-hidden pointer-events-none"
-      style={{ zIndex: 0 }}
-    >
-      <div
-        style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          width: COLS * CELL,
-          height: ROWS * CELL,
-          transform: 'translate(-50%, -50%) rotate(-25deg)',
-          display: 'grid',
-          gridTemplateColumns: `repeat(${COLS}, ${CELL}px)`,
-        }}
-      >
-        {Array.from({ length: COLS * ROWS }, (_, i) => (
-          <div
-            key={i}
-            style={{ width: CELL, height: CELL, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Wallet size={48} style={{ color: 'white', opacity: 0.12, strokeWidth: 1.5 }} />
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+import AuthBackground from '@/components/AuthBackground'
 
 // SVG logo Google colorful
 function GoogleIcon() {
@@ -57,12 +22,7 @@ function Login() {
   const [showPassword, setShowPassword] = useState(false)
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center p-4 overflow-hidden">
-
-      {/* Pattern dompet berulang di background */}
-      <WalletPattern />
-
-      {/* Kartu login */}
+    <AuthBackground>
       <div
         className="relative z-10 bg-white rounded-2xl shadow-xl w-full max-w-[420px]"
         style={{ padding: '40px' }}
@@ -169,7 +129,7 @@ function Login() {
         </p>
 
       </div>
-    </div>
+    </AuthBackground>
   )
 }
 

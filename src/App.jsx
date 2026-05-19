@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/login'
+import RegisterType from './pages/register-type'
 import './App.css'
 
 function PlaceholderPage({ judul }) {
@@ -16,7 +17,8 @@ function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/register-type" element={<PlaceholderPage judul="Halaman Pilih Tipe Akun" />} />
+        <Route path="/register-type" element={<RegisterType />} />
+        <Route path="/register/individu" element={<PlaceholderPage judul="Registrasi Individu" />} />
         <Route path="/dashboard" element={<PlaceholderPage judul="Dashboard" />} />
       </Routes>
     </BrowserRouter>
