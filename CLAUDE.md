@@ -77,3 +77,37 @@ public/        → gambar, ikon
 - Semua error message UI dalam Bahasa Indonesia
 - Prioritaskan mobile-first responsive
 - Hemat quota: gunakan Sonnet untuk task harian
+
+## Arsitektur — Keputusan Desain Penting
+
+### Single Source of Truth: `src/lib/regulations.js`
+Semua angka regulasi (BPJS, pajak, batas upah) HANYA disimpan di file ini.
+Komponen membaca dari sini — jangan pernah hardcode angka regulasi di komponen.
+Kalau pemerintah update tarif, cukup edit `regulations.js` saja.
+
+### `getEffectiveWage(gajiPokok, umkDaerah)` — Logika UMK Floor
+BPJS secara hukum dihitung dari `max(gajiAktual, UMK daerah)`.
+Helper ini mengenkapsulasi aturan itu. Dipanggil di:
+- `calcBPJSKesehatan()` — untuk dasar iuran PPU
+- `calcBPJSKetenagakerjaan()` — untuk dasar JHT, JP, JKK, JKM
+UMK diisi user di Step 3 (Lokasi) → disimpan di `formData.umk_daerah`.
+
+## Fitur yang Direncanakan (Belum Dibangun)
+
+### Sistem Auto-Post Gaji (Target: Minggu 5 / Fase 2)
+Ketika user login di tanggal gajian, AI akan:
+1. Tanya insentif tidak tetap bulan ini (lembur, bonus, komisi)
+2. Hitung total penghasilan bulan ini
+3. Otomatis buat jurnal: Debit Kas/Bank, Kredit Pendapatan Gaji
+4. Otomatis buat potongan: BPJS Kesehatan, BPJS TK, PPh 21
+Data dasar (gaji pokok, tunjangan, BPJS, tanggal gajian) sudah dikumpulkan
+di form registrasi Step 2 & 3 untuk keperluan fitur ini.
+
+### Sistem Monthly AI Check (Fase 4)
+Setiap awal bulan: AI mereview pengeluaran bulan lalu, deteksi anomali,
+dan kasih rekomendasi budget bulan depan berdasarkan pola historis.
+
+### Update Regulasi Tahunan
+Setiap awal tahun: cukup update `src/lib/regulations.js`.
+Semua kalkulasi di seluruh app otomatis menggunakan angka baru.
+Tidak perlu sentuh komponen sama sekali.
