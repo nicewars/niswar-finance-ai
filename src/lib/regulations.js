@@ -94,26 +94,8 @@ export const REGULATIONS_2026 = {
 }
 
 // ===================================================
-// HELPER FUNCTIONS
+// CATATAN
 // ===================================================
-
-/**
- * Menghitung upah efektif untuk dasar perhitungan BPJS.
- *
- * Aturan: BPJS harus dihitung dari upah aktual ATAU UMK/UMP daerah,
- * mana yang lebih besar. Jadi kalau gaji pokok < UMK, dasar BPJS
- * tetap pakai UMK — bukan gaji aktual.
- *
- * Analogi: seperti tagihan listrik minimum. Walau kamu pakai
- * listrik sedikit, ada biaya minimum yang harus tetap dibayar.
- *
- * @param {number|string} gajiPokok  - Total penghasilan tetap (gaji + tunjangan tetap)
- * @param {number|string} umkDaerah  - UMK/UMP setempat (0 atau kosong = tidak dipakai)
- * @returns {number} Upah efektif untuk dasar perhitungan BPJS
- */
-export function getEffectiveWage(gajiPokok, umkDaerah) {
-  const gaji = parseInt(gajiPokok) || 0
-  const umk = parseInt(umkDaerah) || 0
-  if (!umk || umk <= 0) return gaji
-  return Math.max(gaji, umk)
-}
+// Data UMP/UMK per provinsi ada di src/lib/ump-data.js
+// Update nilai UMP setiap Januari sesuai Keputusan Gubernur
+// getEffectiveWageForBPJS() juga ada di ump-data.js

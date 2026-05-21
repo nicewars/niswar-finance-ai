@@ -4,7 +4,8 @@ import { ArrowLeft, ArrowRight, Check, Info } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import AuthBackground from '@/components/AuthBackground'
-import { REGULATIONS_2026, getEffectiveWage } from '@/lib/regulations'
+import { REGULATIONS_2026 } from '@/lib/regulations'
+import { getEffectiveWageForBPJS } from '@/lib/ump-data'
 
 // Shortcut alias supaya pemakaian regulasi di kode lebih singkat
 const BPJS_KES = REGULATIONS_2026.bpjsKesehatan
@@ -14,7 +15,7 @@ const BPJS_TK = REGULATIONS_2026.bpjsKetenagakerjaan
 // KONSTANTA UI (bukan regulasi)
 // =========================================================
 const STORAGE_KEY = 'register_individu_form'
-const STEP_LABELS = ['Identitas', 'Karir', 'Lokasi', 'Target']
+const STEP_LABELS = ['Identitas & Domisili', 'Karir', 'Lokasi', 'Target']
 const AGAMA_OPTIONS = ['Islam', 'Kristen', 'Katolik', 'Hindu', 'Buddha', 'Konghucu', 'Lainnya']
 const STATUS_OPTIONS = ['Lajang', 'Menikah', 'Cerai', 'Janda/Duda']
 const PENDIDIKAN_OPTIONS = ['SD', 'SMP', 'SMA/SMK', 'D3', 'S1', 'S2', 'S3']
@@ -105,10 +106,14 @@ export function calcPenghasilanTetap(formData) {
 export function calcBPJSKesehatan(formData) {
   if (formData.bpjs_kes_peserta !== 'Ya, peserta') return null
 
-  const penghasilan = calcPenghasilanTetap(formData)
-  // Gunakan UMK sebagai batas bawah upah (jika diisi di Step Lokasi)
-  const upahEfektif = getEffectiveWage(penghasilan, formData.umk_daerah)
-  const umkApplied = upahEfektif > penghasilan
+  const totalGajiTetap = calcPenghasilanTetap(formData)
+  // Terapkan UMK/UMP sebagai lantai upah untuk perhitungan BPJS
+  const upahEfektif = getEffectiveWageForBPJS(
+    totalGajiTetap,
+    formData.provinsi,
+    formData.umkKota ? parseInt(formData.umkKota) : null,
+  )
+  const sedangDiterapkanMinimum = upahEfektif > totalGajiTetap
   const status = formData.bpjs_kes_status
 
   if (status === 'PPU') {
@@ -126,7 +131,7 @@ export function calcBPJSKesehatan(formData) {
       dariPerusahaan,
       tambahanKeluarga,
       total,
-      umkApplied,
+      sedangDiterapkanMinimum,
     }
   }
 
@@ -150,16 +155,20 @@ export function calcBPJSKesehatan(formData) {
 export function calcBPJSKetenagakerjaan(formData) {
   if (formData.bpjs_tk_peserta !== 'Ya') return null
 
-  const penghasilan = calcPenghasilanTetap(formData)
-  // Gunakan UMK sebagai batas bawah upah (jika diisi di Step Lokasi)
-  const upahEfektif = getEffectiveWage(penghasilan, formData.umk_daerah)
-  const umkApplied = upahEfektif > penghasilan
+  const totalGajiTetap = calcPenghasilanTetap(formData)
+  // Terapkan UMK/UMP sebagai lantai upah untuk perhitungan BPJS
+  const upahEfektif = getEffectiveWageForBPJS(
+    totalGajiTetap,
+    formData.provinsi,
+    formData.umkKota ? parseInt(formData.umkKota) : null,
+  )
+  const sedangDiterapkanMinimum = upahEfektif > totalGajiTetap
 
   const programs = formData.bpjs_tk_program ?? BPJS_TK_PROGRAM_DEFAULT
   const risikoData = BPJS_TK_RISIKO_OPTIONS.find((r) => r.value === formData.bpjs_tk_risiko)
   const tarifJKK = risikoData ? BPJS_TK.jkk.tarifRisiko[risikoData.key] : 0
 
-  const result = { programs, totalPotonganGaji: 0, totalPerusahaan: 0, umkApplied }
+  const result = { programs, totalPotonganGaji: 0, totalPerusahaan: 0, sedangDiterapkanMinimum }
 
   if (programs.includes('JHT')) {
     result.jhtGaji = Math.round(upahEfektif * BPJS_TK.jht.persenKaryawan)
@@ -294,7 +303,7 @@ function CalcRow({ label, amount, bold }) {
 function Step1({ formData, updateField, errors, today }) {
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold text-gray-800 mb-4">Identitas Diri</h2>
+      <h2 className="text-xl font-bold text-gray-800 mb-4">Identitas & Domisili</h2>
 
       <div>
         <Label htmlFor="nama_lengkap" className="block mb-1.5 text-sm font-medium text-gray-700">Nama Lengkap</Label>
@@ -343,6 +352,68 @@ function Step1({ formData, updateField, errors, today }) {
           onChange={(e) => updateField('jumlah_tanggungan', e.target.value)} placeholder="0" className={inputClass} />
         <p className="mt-1 text-xs text-gray-500">Jumlah anggota keluarga yang Anda biayai</p>
         <FieldError message={errors.jumlah_tanggungan} />
+      </div>
+
+      {/* ─────────────────────────────────────────────────── */}
+      {/* DOMISILI — diisi di sini agar perhitungan BPJS     */}
+      {/* sudah akurat sejak Step 2                          */}
+      {/* ─────────────────────────────────────────────────── */}
+      <SectionHeader
+        title="Domisili"
+        subtitle="Dipakai untuk UMP/UMK dan fitur lokasi. Provinsi wajib diisi."
+      />
+
+      <div>
+        <Label htmlFor="provinsi" className="block mb-1.5 text-sm font-medium text-gray-700">
+          Provinsi Domisili
+        </Label>
+        <select
+          id="provinsi"
+          value={formData.provinsi || ''}
+          onChange={(e) => updateField('provinsi', e.target.value)}
+          className={inputClass}
+        >
+          <option value="">Pilih provinsi tempat tinggal</option>
+          {PROVINSI_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+        <FieldError message={errors.provinsi} />
+      </div>
+
+      <div>
+        <Label htmlFor="kotaKabupaten" className="block mb-1.5 text-sm font-medium text-gray-700">
+          Kabupaten / Kota Domisili
+        </Label>
+        <input
+          id="kotaKabupaten"
+          type="text"
+          value={formData.kotaKabupaten || ''}
+          onChange={(e) => updateField('kotaKabupaten', e.target.value)}
+          placeholder="Contoh: Kota Depok, Kabupaten Bogor"
+          className={inputClass}
+        />
+        <FieldError message={errors.kotaKabupaten} />
+      </div>
+
+      <div>
+        <Label htmlFor="umkKota" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
+          UMK Kabupaten/Kota Anda (jika diketahui)
+          <span className="bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
+        </Label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none">Rp</span>
+          <input
+            id="umkKota"
+            type="text"
+            inputMode="numeric"
+            value={formatRupiah(formData.umkKota)}
+            onChange={(e) => updateField('umkKota', e.target.value.replace(/\D/g, ''))}
+            placeholder="0"
+            className={inputClass + ' pl-10'}
+          />
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          Cari di Google: "UMK [nama kota] 2026". Jika kosong, sistem pakai UMP Provinsi.
+        </p>
       </div>
     </div>
   )
@@ -498,9 +569,9 @@ function BPJSKesehatanSection({ formData, updateField, errors }) {
 
               {calc.jenis === 'PPU' && (
                 <div className="space-y-1">
-                  {calc.umkApplied && (
+                  {calc.sedangDiterapkanMinimum && (
                     <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
-                      ⬆️ Upah dasar dinaikkan ke UMK/UMP daerah Anda karena gaji aktual di bawah upah minimum.
+                      ⚠️ Iuran dihitung dari UMP/UMK karena gaji di bawah upah minimum. Ini sesuai ketentuan BPJS.
                     </p>
                   )}
                   <p className="text-xs text-sky-700 mb-2">
@@ -524,10 +595,10 @@ function BPJSKesehatanSection({ formData, updateField, errors }) {
                   <div className="border-t border-sky-200 mt-2 pt-2">
                     <CalcRow label="Total iuran bulanan" amount={displayIDR(calc.total)} bold />
                   </div>
-                  {!formData.umk_daerah && (
+                  {!formData.umkKota && (
                     <p className="text-[11px] text-sky-500 flex items-start gap-1 mt-1.5">
                       <Info size={12} className="mt-px shrink-0" />
-                      Dihitung dari gaji aktual. Isi UMK daerah Anda di Step Lokasi untuk perhitungan yang lebih akurat.
+                      UMK kota tidak diisi. Sistem otomatis pakai UMP Provinsi sebagai batas bawah.
                     </p>
                   )}
                 </div>
@@ -709,17 +780,17 @@ function BPJSKetenagakerjaanSection({ formData, updateField, errors }) {
               </div>
 
               <div className="border-t border-emerald-200 mt-3 pt-3">
-                {calc.umkApplied && (
+                {calc.sedangDiterapkanMinimum && (
                   <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
-                    ⬆️ Semua perhitungan di atas menggunakan UMK/UMP sebagai dasar karena gaji aktual di bawah upah minimum.
+                    ⚠️ Iuran dihitung dari UMP/UMK karena gaji di bawah upah minimum. Ini sesuai ketentuan BPJS.
                   </p>
                 )}
                 <CalcRow label="Total potongan dari gaji Anda" amount={displayIDR(calc.totalPotonganGaji)} bold />
                 <CalcRow label="Total dibayar perusahaan" amount={displayIDR(calc.totalPerusahaan)} bold />
-                {!formData.umk_daerah && (
+                {!formData.umkKota && (
                   <p className="text-[11px] text-emerald-600 flex items-start gap-1 mt-2">
                     <Info size={12} className="mt-px shrink-0" />
-                    Dihitung dari gaji aktual. Isi UMK daerah Anda di Step Lokasi untuk perhitungan yang lebih akurat.
+                    UMK kota tidak diisi. Sistem otomatis pakai UMP Provinsi sebagai batas bawah.
                   </p>
                 )}
               </div>
@@ -824,63 +895,22 @@ function Step3({ formData, updateField, errors }) {
     <div className="space-y-4">
       <h2 className="text-xl font-bold text-gray-800 mb-4">Lokasi</h2>
 
-      <div>
-        <Label htmlFor="provinsi" className="block mb-1.5 text-sm font-medium text-gray-700">Provinsi</Label>
-        <select
-          id="provinsi"
-          value={formData.provinsi || ''}
-          onChange={(e) => updateField('provinsi', e.target.value)}
-          className={inputClass}
-        >
-          <option value="">Pilih provinsi...</option>
-          {PROVINSI_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-        </select>
-        <FieldError message={errors.provinsi} />
-      </div>
-
-      <div>
-        <Label htmlFor="kota_kabupaten" className="block mb-1.5 text-sm font-medium text-gray-700">Kota / Kabupaten</Label>
-        <input
-          id="kota_kabupaten"
-          type="text"
-          value={formData.kota_kabupaten || ''}
-          onChange={(e) => updateField('kota_kabupaten', e.target.value)}
-          placeholder="Contoh: Kota Bandung, Kab. Bogor, Kota Surabaya"
-          className={inputClass}
-        />
-        <FieldError message={errors.kota_kabupaten} />
-      </div>
-
-      {/* Field UMK/UMP — kunci akurasi perhitungan BPJS */}
-      <div>
-        <Label htmlFor="umk_daerah" className="flex flex-wrap items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
-          Upah Minimum Kab/Kota (UMK) atau Upah Minimum Provinsi (UMP)
-          <span className="bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap">
-            Penting untuk BPJS
-          </span>
-        </Label>
-        <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none">Rp</span>
-          <input
-            id="umk_daerah"
-            type="text"
-            inputMode="numeric"
-            value={formatRupiah(formData.umk_daerah)}
-            onChange={(e) => updateField('umk_daerah', e.target.value.replace(/\D/g, ''))}
-            placeholder="0"
-            className={inputClass + ' pl-10'}
-          />
+      {/* Ringkasan domisili dari Step 1 */}
+      {formData.provinsi && (
+        <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 flex items-start gap-2">
+          <span className="text-indigo-400 mt-0.5">📍</span>
+          <div>
+            <p className="text-sm font-semibold text-indigo-900">
+              {formData.kotaKabupaten || '—'}, {formData.provinsi}
+            </p>
+            <p className="text-xs text-indigo-600 mt-0.5">
+              {formData.umkKota
+                ? `UMK: ${displayIDR(formData.umkKota)}`
+                : 'UMK tidak diisi — sistem pakai UMP Provinsi'}
+            </p>
+          </div>
         </div>
-        <div className="mt-1.5 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-          <p className="text-xs text-amber-800 leading-relaxed">
-            💡 Cari di Google: <span className="font-semibold">"UMK [nama kota Anda] 2026"</span>
-            {' '}atau{' '}
-            <span className="font-semibold">"UMP [nama provinsi Anda] 2026"</span>.<br />
-            BPJS dihitung dari gaji aktual ATAU UMK, mana yang lebih besar.
-            Jika gaji Anda di bawah UMK, perhitungan BPJS akan otomatis naik ke angka UMK.
-          </p>
-        </div>
-      </div>
+      )}
 
       <div>
         <Label htmlFor="kode_pos" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
@@ -897,6 +927,9 @@ function Step3({ formData, updateField, errors }) {
           maxLength={5}
           className={inputClass}
         />
+        <p className="mt-1 text-xs text-gray-500">
+          Dipakai untuk fitur rekomendasi layanan keuangan terdekat (fase berikutnya)
+        </p>
       </div>
     </div>
   )
@@ -948,6 +981,8 @@ function RegisterIndividu() {
     if (formData.jumlah_tanggungan === undefined || formData.jumlah_tanggungan === '') {
       e.jumlah_tanggungan = 'Isi jumlah tanggungan (boleh 0)'
     }
+    if (!formData.provinsi) e.provinsi = 'Pilih provinsi domisili'
+    if (!formData.kotaKabupaten?.trim()) e.kotaKabupaten = 'Isi kabupaten/kota domisili Anda'
     return e
   }
 
@@ -982,10 +1017,9 @@ function RegisterIndividu() {
   }
 
   function validateStep3() {
-    const e = {}
-    if (!formData.provinsi) e.provinsi = 'Pilih provinsi'
-    if (!formData.kota_kabupaten?.trim()) e.kota_kabupaten = 'Isi kota/kabupaten Anda'
-    return e
+    // Provinsi & kota sudah divalidasi di Step 1.
+    // Semua field di Step 3 (kode_pos) bersifat opsional.
+    return {}
   }
 
   function scrollToFirstError(errs) {
