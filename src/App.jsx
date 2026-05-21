@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/login'
 import RegisterType from './pages/register-type'
 import RegisterIndividu from './pages/register-individu'
+import SettingsProfil from './pages/settings-profil'
 import './App.css'
 
 function PlaceholderPage({ judul }) {
@@ -21,6 +22,7 @@ function App() {
         <Route path="/register-type" element={<RegisterType />} />
         <Route path="/register/individu" element={<RegisterIndividu />} />
         <Route path="/dashboard" element={<PlaceholderPage judul="Dashboard" />} />
+        <Route path="/settings/profil" element={<SettingsProfil />} />
       </Routes>
     </BrowserRouter>
   )

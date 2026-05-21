@@ -5,7 +5,8 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import AuthBackground from '@/components/AuthBackground'
 import { REGULATIONS_2026 } from '@/lib/regulations'
-import { getUMPbyProvinsi, getUMKbyKota, getEffectiveWageForBPJSKes, getEffectiveWageForBPJSTK } from '@/lib/ump-data'
+import { getUMPbyProvinsi, getUMKbyKota, getEffectiveWageForBPJS, getEffectiveWageForBPJSTK } from '@/lib/ump-data'
+import { supabase } from '@/lib/supabase'
 
 // Shortcut alias supaya pemakaian regulasi di kode lebih singkat
 const BPJS_KES = REGULATIONS_2026.bpjsKesehatan
@@ -103,24 +104,22 @@ export function calcPenghasilanTetap(formData) {
   return gaji + tunjangan
 }
 
-export function calcBPJSKesehatan(formData) {
+export function calcBPJSKesehatan(formData, umkManual = null) {
   if (formData.bpjs_kes_peserta !== 'Ya, peserta') return null
 
   const totalGajiTetap = calcPenghasilanTetap(formData)
-  // BPJS Kesehatan: lantai = UMK kota (jika ada di database), fallback UMP provinsi
-  const upahEfektif = getEffectiveWageForBPJSKes(
+  // BPJS Kesehatan: priority chain — umkManual > UMK database > UMP provinsi
+  const wageInfo = getEffectiveWageForBPJS(
     totalGajiTetap,
     formData.provinsi,
     formData.kotaKabupaten,
+    umkManual,
   )
+  const upahEfektif = wageInfo.upahEfektif
   const sedangDiterapkanMinimum = upahEfektif > totalGajiTetap
-  // Info sumber dasar perhitungan untuk ditampilkan di kartu
-  const umkKota = getUMKbyKota(formData.kotaKabupaten)
-  const umpProvinsi = getUMPbyProvinsi(formData.provinsi)
-  const infoMinimum = umkKota
-    ? { label: `UMK ${formData.kotaKabupaten}`, nilai: umkKota }
-    : umpProvinsi
-    ? { label: `UMP ${formData.provinsi}`, nilai: umpProvinsi, fallback: true }
+  // Info sumber dasar perhitungan untuk ditampilkan di kartu (termasuk sumber/badge)
+  const infoMinimum = wageInfo.nilaiMinimum > 0
+    ? { label: wageInfo.label, nilai: wageInfo.nilaiMinimum, sumber: wageInfo.sumber }
     : null
   const status = formData.bpjs_kes_status
 
@@ -454,7 +453,7 @@ function Step1({ formData, updateField, errors, today }) {
 // =========================================================
 // SECTION: PENGHASILAN BULANAN
 // =========================================================
-function PenghasilanSection({ formData, updateField, errors }) {
+function PenghasilanSection({ formData, updateField, errors, umkManual }) {
   const totalTetap = calcPenghasilanTetap(formData)
 
   return (
@@ -523,8 +522,8 @@ function PenghasilanSection({ formData, updateField, errors }) {
 // =========================================================
 // SECTION: BPJS KESEHATAN
 // =========================================================
-function BPJSKesehatanSection({ formData, updateField, errors }) {
-  const calc = calcBPJSKesehatan(formData)
+function BPJSKesehatanSection({ formData, updateField, errors, umkManual }) {
+  const calc = calcBPJSKesehatan(formData, umkManual)
   const isPeserta = formData.bpjs_kes_peserta === 'Ya, peserta'
 
   return (
@@ -601,6 +600,28 @@ function BPJSKesehatanSection({ formData, updateField, errors }) {
 
               {calc.jenis === 'PPU' && (
                 <div className="space-y-1">
+                  {/* Badge sumber data UMK/UMP */}
+                  {calc.infoMinimum && (
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        calc.infoMinimum.sumber === 'ump_fallback'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {calc.infoMinimum.sumber === 'umk_manual'   && '✏️ UMK Manual'}
+                        {calc.infoMinimum.sumber === 'umk_database' && '🔍 UMK Database'}
+                        {calc.infoMinimum.sumber === 'ump_fallback' && '⚠️ UMP Fallback'}
+                      </span>
+                      {calc.infoMinimum.sumber === 'ump_fallback' && (
+                        <a
+                          href="/settings/profil"
+                          className="text-[10px] text-amber-600 underline hover:text-amber-800"
+                        >
+                          Override manual di Settings
+                        </a>
+                      )}
+                    </div>
+                  )}
                   {calc.sedangDiterapkanMinimum && (
                     <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
                       ⚠️ Iuran dihitung dari UMP/UMK karena gaji di bawah upah minimum. Ini sesuai ketentuan BPJS.
@@ -612,7 +633,6 @@ function BPJSKesehatanSection({ formData, updateField, errors }) {
                         Dasar BPJS Kes:{' '}
                         <span className="font-medium">{calc.infoMinimum.label}</span>{' '}
                         {displayIDR(calc.infoMinimum.nilai)}
-                        {calc.infoMinimum.fallback && ' (UMK kota belum tersedia)'}
                         {' — '}upah dasar: {displayIDR(calc.upahDasar)}
                         {calc.upahDasar === BPJS_KES.batasAtasUpah && ' (batas maksimal)'}
                       </>
@@ -842,7 +862,7 @@ function BPJSKetenagakerjaanSection({ formData, updateField, errors }) {
 // =========================================================
 // STEP 2 — KARIR & FINANSIAL
 // =========================================================
-function Step2({ formData, updateField, errors }) {
+function Step2({ formData, updateField, errors, umkManual }) {
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-bold text-gray-800 mb-4">Karir & Finansial</h2>
@@ -865,7 +885,7 @@ function Step2({ formData, updateField, errors }) {
         <FieldError message={errors.pendidikan} />
       </div>
 
-      <PenghasilanSection formData={formData} updateField={updateField} errors={errors} />
+      <PenghasilanSection formData={formData} updateField={updateField} errors={errors} umkManual={umkManual} />
 
       <div className="pt-2">
         <Label className="block mb-1.5 text-sm font-medium text-gray-700">Frekuensi Gajian</Label>
@@ -918,7 +938,7 @@ function Step2({ formData, updateField, errors }) {
           placeholder="XX.XXX.XXX.X-XXX.XXX" className={inputClass} />
       </div>
 
-      <BPJSKesehatanSection formData={formData} updateField={updateField} errors={errors} />
+      <BPJSKesehatanSection formData={formData} updateField={updateField} errors={errors} umkManual={umkManual} />
       <BPJSKetenagakerjaanSection formData={formData} updateField={updateField} errors={errors} />
     </div>
   )
@@ -992,10 +1012,35 @@ function RegisterIndividu() {
   const [currentStep, setCurrentStep] = useState(1)
   const [formData, setFormData] = useState(loadFormData)
   const [errors, setErrors] = useState({})
+  // UMK manual — diambil dari Supabase jika user pernah override di /settings/profil
+  const [umkManual, setUmkManual] = useState(null)
+  // State loading saat submit di step terakhir
+  const [submitting, setSubmitting] = useState(false)
 
+  // Auto-save form ke localStorage setiap ada perubahan
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(formData))
   }, [formData])
+
+  // Fetch umkManual dari Supabase (kalau user sudah pernah override di Settings)
+  useEffect(() => {
+    async function fetchUmkManual() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+        const { data } = await supabase
+          .from('profiles')
+          .select('umk_manual')
+          .eq('id', user.id)
+          .single()
+        if (data?.umk_manual) setUmkManual(data.umk_manual)
+      } catch {
+        // Supabase belum dikonfigurasi atau user belum login — tidak apa-apa
+        // App tetap berjalan normal, hanya umkManual = null
+      }
+    }
+    fetchUmkManual()
+  }, [])
 
   function updateField(name, value) {
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -1084,7 +1129,77 @@ function RegisterIndividu() {
       setCurrentStep(currentStep + 1)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
-      alert('Form selesai! Submission akan diimplementasi setelah Supabase di-setup.')
+      handleSubmit()
+    }
+  }
+
+  async function handleSubmit() {
+    setSubmitting(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('Sesi tidak ditemukan. Silakan login ulang.')
+        navigate('/login')
+        return
+      }
+
+      // Hitung deteksi UMP/UMK berdasarkan domisili yang diisi
+      const detectedUmp = getUMPbyProvinsi(formData.provinsi) || null
+      const detectedUmk = getUMKbyKota(formData.kotaKabupaten) || null
+      const umkSource   = umkManual
+        ? 'umk_manual'
+        : detectedUmk
+        ? 'umk_database'
+        : 'ump_fallback'
+
+      const { error } = await supabase.from('profiles').upsert({
+        id: user.id,
+        // Data pribadi
+        nama_lengkap:        formData.nama_lengkap,
+        tanggal_lahir:       formData.tanggal_lahir,
+        jenis_kelamin:       formData.jenis_kelamin,
+        agama:               formData.agama,
+        status_pernikahan:   formData.status_pernikahan,
+        jumlah_tanggungan:   parseInt(formData.jumlah_tanggungan) || 0,
+        // Domisili
+        provinsi:            formData.provinsi,
+        kota_kabupaten:      formData.kotaKabupaten,
+        kode_pos:            formData.kode_pos || null,
+        // Karir
+        pekerjaan:           formData.pekerjaan,
+        pendidikan:          formData.pendidikan,
+        frekuensi_gajian:    formData.frekuensi_gajian,
+        tanggal_gajian:      parseInt(formData.tanggal_gajian) || null,
+        // Finansial
+        gaji_pokok:          parseInt(formData.gaji_pokok) || 0,
+        tunjangan_tetap:     parseInt(formData.tunjangan_tetap) || 0,
+        total_cicilan:       parseInt(formData.total_cicilan) || 0,
+        npwp:                formData.npwp || null,
+        // BPJS Kesehatan
+        bpjs_kes_peserta:           formData.bpjs_kes_peserta,
+        bpjs_kes_status:            formData.bpjs_kes_status || null,
+        bpjs_kes_kelas:             formData.bpjs_kes_kelas || null,
+        bpjs_kes_tambahan_keluarga: parseInt(formData.bpjs_kes_tambahan_keluarga) || 0,
+        // BPJS Ketenagakerjaan
+        bpjs_tk_peserta:  formData.bpjs_tk_peserta,
+        bpjs_tk_program:  formData.bpjs_tk_program || null,
+        bpjs_tk_risiko:   formData.bpjs_tk_risiko || null,
+        // Deteksi UMP/UMK
+        detected_ump: detectedUmp,
+        detected_umk: detectedUmk,
+        umk_manual:   umkManual || null,
+        umk_source:   umkSource,
+      })
+
+      if (error) throw error
+
+      // Hapus draft lokal setelah berhasil simpan
+      localStorage.removeItem(STORAGE_KEY)
+      navigate('/dashboard')
+    } catch (err) {
+      alert(`Gagal menyimpan data: ${err.message}`)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -1107,7 +1222,7 @@ function RegisterIndividu() {
         <ProgressBar currentStep={currentStep} />
 
         {currentStep === 1 && <Step1 formData={formData} updateField={updateField} errors={errors} today={today} />}
-        {currentStep === 2 && <Step2 formData={formData} updateField={updateField} errors={errors} />}
+        {currentStep === 2 && <Step2 formData={formData} updateField={updateField} errors={errors} umkManual={umkManual} />}
         {currentStep === 3 && <Step3 formData={formData} updateField={updateField} errors={errors} />}
         {currentStep === 4 && <PlaceholderStep title="Target Finansial" />}
 
@@ -1123,9 +1238,10 @@ function RegisterIndividu() {
           <button
             type="button"
             onClick={handleNext}
-            className="flex items-center gap-1.5 px-6 py-2.5 rounded-lg bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-sm font-bold hover:opacity-90 active:opacity-80 transition-opacity cursor-pointer"
+            disabled={submitting}
+            className="flex items-center gap-1.5 px-6 py-2.5 rounded-lg bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-sm font-bold hover:opacity-90 active:opacity-80 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLastStep ? 'Daftar' : 'Lanjut'}
+            {isLastStep ? (submitting ? 'Menyimpan...' : 'Daftar') : 'Lanjut'}
             {!isLastStep && <ArrowRight size={16} />}
           </button>
         </div>

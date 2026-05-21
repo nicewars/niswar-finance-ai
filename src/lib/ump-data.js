@@ -167,7 +167,46 @@ export function getEffectiveWageForBPJSKes(gajiPokok, provinsi, kotaKabupaten) {
   return Math.max(gajiPokok, minimum)
 }
 
-// Fungsi lama dipertahankan agar tidak break kode lain yang masih memakainya
-export function getEffectiveWageForBPJS(gajiPokok, provinsi, umkKota = null) {
-  return getEffectiveWageForBPJSKes(gajiPokok, provinsi, umkKota ? String(umkKota) : null)
+// ===================================================
+// PRIORITY CHAIN — getEffectiveWageForBPJS (versi baru)
+// ===================================================
+// Dipakai oleh calcBPJSKesehatan untuk dasar iuran yang transparan.
+// Mengembalikan OBJECT (bukan number) agar komponen bisa tampilkan sumber data.
+//
+// Priority: umkManual > UMK_2026 database > UMP provinsi
+//
+// Contoh return:
+//   { upahEfektif: 5_000_000, sumber: 'umk_database',
+//     nilaiMinimum: 4_878_612, label: 'UMK Kota Depok' }
+//
+// Nilai sumber:
+//   'umk_manual'   → user override manual di /settings/profil
+//   'umk_database' → UMK ditemukan di tabel UMK_2026
+//   'ump_fallback' → UMK kota tidak ada, pakai UMP provinsi
+export function getEffectiveWageForBPJS(gajiPokok, provinsi, kotaKabupaten, umkManual = null) {
+  const ump = getUMPbyProvinsi(provinsi) || 0
+  const umkDb = getUMKbyKota(kotaKabupaten)
+
+  let nilaiMinimum, sumber, label
+
+  if (umkManual && Number(umkManual) > 0) {
+    nilaiMinimum = Number(umkManual)
+    sumber = 'umk_manual'
+    label = 'UMK Manual (override)'
+  } else if (umkDb) {
+    nilaiMinimum = umkDb
+    sumber = 'umk_database'
+    label = `UMK ${kotaKabupaten}`
+  } else if (ump) {
+    nilaiMinimum = ump
+    sumber = 'ump_fallback'
+    label = `UMP ${provinsi}`
+  } else {
+    nilaiMinimum = 0
+    sumber = 'ump_fallback'
+    label = 'Data tidak tersedia'
+  }
+
+  const upahEfektif = Math.max(gajiPokok, nilaiMinimum)
+  return { upahEfektif, sumber, nilaiMinimum, label }
 }
