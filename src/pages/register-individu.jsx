@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import AuthBackground from '@/components/AuthBackground'
 import { REGULATIONS_2026 } from '@/lib/regulations'
-import { getEffectiveWageForBPJS } from '@/lib/ump-data'
+import { getUMPbyProvinsi, getUMKbyKota, getEffectiveWageForBPJSKes, getEffectiveWageForBPJSTK } from '@/lib/ump-data'
 
 // Shortcut alias supaya pemakaian regulasi di kode lebih singkat
 const BPJS_KES = REGULATIONS_2026.bpjsKesehatan
@@ -107,13 +107,21 @@ export function calcBPJSKesehatan(formData) {
   if (formData.bpjs_kes_peserta !== 'Ya, peserta') return null
 
   const totalGajiTetap = calcPenghasilanTetap(formData)
-  // Terapkan UMK/UMP sebagai lantai upah untuk perhitungan BPJS
-  const upahEfektif = getEffectiveWageForBPJS(
+  // BPJS Kesehatan: lantai = UMK kota (jika ada di database), fallback UMP provinsi
+  const upahEfektif = getEffectiveWageForBPJSKes(
     totalGajiTetap,
     formData.provinsi,
-    formData.umkKota ? parseInt(formData.umkKota) : null,
+    formData.kotaKabupaten,
   )
   const sedangDiterapkanMinimum = upahEfektif > totalGajiTetap
+  // Info sumber dasar perhitungan untuk ditampilkan di kartu
+  const umkKota = getUMKbyKota(formData.kotaKabupaten)
+  const umpProvinsi = getUMPbyProvinsi(formData.provinsi)
+  const infoMinimum = umkKota
+    ? { label: `UMK ${formData.kotaKabupaten}`, nilai: umkKota }
+    : umpProvinsi
+    ? { label: `UMP ${formData.provinsi}`, nilai: umpProvinsi, fallback: true }
+    : null
   const status = formData.bpjs_kes_status
 
   if (status === 'PPU') {
@@ -132,6 +140,7 @@ export function calcBPJSKesehatan(formData) {
       tambahanKeluarga,
       total,
       sedangDiterapkanMinimum,
+      infoMinimum,
     }
   }
 
@@ -156,19 +165,20 @@ export function calcBPJSKetenagakerjaan(formData) {
   if (formData.bpjs_tk_peserta !== 'Ya') return null
 
   const totalGajiTetap = calcPenghasilanTetap(formData)
-  // Terapkan UMK/UMP sebagai lantai upah untuk perhitungan BPJS
-  const upahEfektif = getEffectiveWageForBPJS(
-    totalGajiTetap,
-    formData.provinsi,
-    formData.umkKota ? parseInt(formData.umkKota) : null,
-  )
+  // BPJS Ketenagakerjaan: lantai = UMP Provinsi (tidak pakai UMK kota)
+  const upahEfektif = getEffectiveWageForBPJSTK(totalGajiTetap, formData.provinsi)
   const sedangDiterapkanMinimum = upahEfektif > totalGajiTetap
+  // Info sumber dasar untuk ditampilkan di kartu
+  const umpProvinsi = getUMPbyProvinsi(formData.provinsi)
+  const infoMinimum = umpProvinsi
+    ? { label: `UMP ${formData.provinsi}`, nilai: umpProvinsi }
+    : null
 
   const programs = formData.bpjs_tk_program ?? BPJS_TK_PROGRAM_DEFAULT
   const risikoData = BPJS_TK_RISIKO_OPTIONS.find((r) => r.value === formData.bpjs_tk_risiko)
   const tarifJKK = risikoData ? BPJS_TK.jkk.tarifRisiko[risikoData.key] : 0
 
-  const result = { programs, totalPotonganGaji: 0, totalPerusahaan: 0, sedangDiterapkanMinimum }
+  const result = { programs, totalPotonganGaji: 0, totalPerusahaan: 0, sedangDiterapkanMinimum, infoMinimum }
 
   if (programs.includes('JHT')) {
     result.jhtGaji = Math.round(upahEfektif * BPJS_TK.jht.persenKaryawan)
@@ -297,6 +307,45 @@ function CalcRow({ label, amount, bold }) {
   )
 }
 
+// Info card UMP/UMK — muncul otomatis setelah user memilih provinsi
+function UMPInfoCard({ provinsi, kotaKabupaten }) {
+  const ump = getUMPbyProvinsi(provinsi)
+  const umk = getUMKbyKota(kotaKabupaten)
+  const kotaLabel = kotaKabupaten?.trim() || null
+
+  return (
+    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 space-y-1.5">
+      <p className="text-xs font-semibold text-blue-800 mb-1">
+        📊 Upah Minimum yang terdeteksi otomatis dari domisili Anda:
+      </p>
+
+      {/* Baris BPJS Ketenagakerjaan — selalu pakai UMP provinsi */}
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs text-blue-700 flex-1">BPJS Ketenagakerjaan — UMP {provinsi}:</span>
+        <span className="text-xs font-semibold text-blue-900 whitespace-nowrap font-mono">
+          {ump ? displayIDR(ump) : '—'}
+        </span>
+      </div>
+
+      {/* Baris BPJS Kesehatan — UMK kota jika ada, fallback UMP */}
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs text-blue-700 flex-1">
+          {umk && kotaLabel
+            ? `BPJS Kesehatan — UMK ${kotaLabel}:`
+            : `BPJS Kesehatan — ${kotaLabel ? `UMK ${kotaLabel} belum tersedia, pakai UMP ${provinsi}:` : `UMP ${provinsi} (isi kota untuk cek UMK):`}`}
+        </span>
+        <span className="text-xs font-semibold text-blue-900 whitespace-nowrap font-mono">
+          {umk ? displayIDR(umk) : ump ? displayIDR(ump) : '—'}
+        </span>
+      </div>
+
+      <p className="text-[10px] text-blue-500 pt-0.5">
+        Terdeteksi otomatis dari domisili Anda · Data UMP/UMK 2026
+      </p>
+    </div>
+  )
+}
+
 // =========================================================
 // STEP 1 — IDENTITAS DIRI
 // =========================================================
@@ -394,27 +443,10 @@ function Step1({ formData, updateField, errors, today }) {
         <FieldError message={errors.kotaKabupaten} />
       </div>
 
-      <div>
-        <Label htmlFor="umkKota" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
-          UMK Kabupaten/Kota Anda (jika diketahui)
-          <span className="bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
-        </Label>
-        <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none">Rp</span>
-          <input
-            id="umkKota"
-            type="text"
-            inputMode="numeric"
-            value={formatRupiah(formData.umkKota)}
-            onChange={(e) => updateField('umkKota', e.target.value.replace(/\D/g, ''))}
-            placeholder="0"
-            className={inputClass + ' pl-10'}
-          />
-        </div>
-        <p className="mt-1 text-xs text-gray-500">
-          Cari di Google: "UMK [nama kota] 2026". Jika kosong, sistem pakai UMP Provinsi.
-        </p>
-      </div>
+      {/* Info card UMP/UMK — muncul otomatis setelah provinsi dipilih */}
+      {formData.provinsi && (
+        <UMPInfoCard provinsi={formData.provinsi} kotaKabupaten={formData.kotaKabupaten} />
+      )}
     </div>
   )
 }
@@ -575,8 +607,18 @@ function BPJSKesehatanSection({ formData, updateField, errors }) {
                     </p>
                   )}
                   <p className="text-xs text-sky-700 mb-2">
-                    Dasar perhitungan: {displayIDR(calc.upahDasar)}
-                    {calc.upahDasar === BPJS_KES.batasAtasUpah && ' (batas maksimal)'}
+                    {calc.infoMinimum ? (
+                      <>
+                        Dasar BPJS Kes:{' '}
+                        <span className="font-medium">{calc.infoMinimum.label}</span>{' '}
+                        {displayIDR(calc.infoMinimum.nilai)}
+                        {calc.infoMinimum.fallback && ' (UMK kota belum tersedia)'}
+                        {' — '}upah dasar: {displayIDR(calc.upahDasar)}
+                        {calc.upahDasar === BPJS_KES.batasAtasUpah && ' (batas maksimal)'}
+                      </>
+                    ) : (
+                      <>Dasar perhitungan: {displayIDR(calc.upahDasar)}{calc.upahDasar === BPJS_KES.batasAtasUpah && ' (batas maksimal)'}</>
+                    )}
                   </p>
                   <CalcRow
                     label={`Potongan dari gaji (${formatPercent(BPJS_KES.persenKaryawan)})`}
@@ -595,12 +637,6 @@ function BPJSKesehatanSection({ formData, updateField, errors }) {
                   <div className="border-t border-sky-200 mt-2 pt-2">
                     <CalcRow label="Total iuran bulanan" amount={displayIDR(calc.total)} bold />
                   </div>
-                  {!formData.umkKota && (
-                    <p className="text-[11px] text-sky-500 flex items-start gap-1 mt-1.5">
-                      <Info size={12} className="mt-px shrink-0" />
-                      UMK kota tidak diisi. Sistem otomatis pakai UMP Provinsi sebagai batas bawah.
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -780,6 +816,13 @@ function BPJSKetenagakerjaanSection({ formData, updateField, errors }) {
               </div>
 
               <div className="border-t border-emerald-200 mt-3 pt-3">
+                {calc.infoMinimum && (
+                  <p className="text-[11px] text-emerald-700 mb-2">
+                    Dasar BPJS TK:{' '}
+                    <span className="font-medium">{calc.infoMinimum.label}</span>{' '}
+                    {displayIDR(calc.infoMinimum.nilai)}
+                  </p>
+                )}
                 {calc.sedangDiterapkanMinimum && (
                   <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
                     ⚠️ Iuran dihitung dari UMP/UMK karena gaji di bawah upah minimum. Ini sesuai ketentuan BPJS.
@@ -787,12 +830,6 @@ function BPJSKetenagakerjaanSection({ formData, updateField, errors }) {
                 )}
                 <CalcRow label="Total potongan dari gaji Anda" amount={displayIDR(calc.totalPotonganGaji)} bold />
                 <CalcRow label="Total dibayar perusahaan" amount={displayIDR(calc.totalPerusahaan)} bold />
-                {!formData.umkKota && (
-                  <p className="text-[11px] text-emerald-600 flex items-start gap-1 mt-2">
-                    <Info size={12} className="mt-px shrink-0" />
-                    UMK kota tidak diisi. Sistem otomatis pakai UMP Provinsi sebagai batas bawah.
-                  </p>
-                )}
               </div>
             </div>
           )}
