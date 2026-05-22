@@ -52,6 +52,14 @@ function SettingsProfil() {
   // ── Fetch profil dari Supabase ───────────────────────────
   useEffect(() => {
     async function fetchProfile() {
+      // Supabase belum dikonfigurasi — tampilkan pesan info, bukan error merah
+      if (!supabase) {
+        setErrorMsg(
+          'Supabase belum dikonfigurasi. Halaman ini akan aktif setelah setup database (Minggu 4).'
+        )
+        setLoading(false)
+        return
+      }
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) {
@@ -81,6 +89,7 @@ function SettingsProfil() {
     setSaved(false)
     setErrorMsg(null)
     try {
+      if (!supabase) throw new Error('Supabase belum dikonfigurasi. Setup database dulu di Minggu 4.')
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Sesi tidak ditemukan. Silakan login ulang.')
 

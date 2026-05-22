@@ -1025,6 +1025,8 @@ function RegisterIndividu() {
   // Fetch umkManual dari Supabase (kalau user sudah pernah override di Settings)
   useEffect(() => {
     async function fetchUmkManual() {
+      // Supabase belum dikonfigurasi — skip, app tetap jalan normal
+      if (!supabase) return
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
@@ -1035,8 +1037,7 @@ function RegisterIndividu() {
           .single()
         if (data?.umk_manual) setUmkManual(data.umk_manual)
       } catch {
-        // Supabase belum dikonfigurasi atau user belum login — tidak apa-apa
-        // App tetap berjalan normal, hanya umkManual = null
+        // User belum login atau error jaringan — tidak apa-apa
       }
     }
     fetchUmkManual()
@@ -1136,6 +1137,16 @@ function RegisterIndividu() {
   async function handleSubmit() {
     setSubmitting(true)
     try {
+      // Supabase belum dikonfigurasi — beri tahu user dan tetap lanjut ke dashboard
+      if (!supabase) {
+        alert(
+          'Database belum terhubung (Supabase belum dikonfigurasi).\n\n' +
+          'Data Anda sudah tersimpan di perangkat ini. Koneksi database akan disetup di Minggu 4.'
+        )
+        navigate('/dashboard')
+        return
+      }
+
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         alert('Sesi tidak ditemukan. Silakan login ulang.')
