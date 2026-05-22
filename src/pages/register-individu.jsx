@@ -1139,7 +1139,7 @@ function Step3({ formData, updateField, errors }) {
 
       <div>
         <Label className="block mb-1.5 text-sm font-medium text-gray-700">
-          Berapa bulan pengeluaran yang tersimpan sebagai dana darurat?
+          Kalau penghasilanmu tiba-tiba berhenti bulan ini, keuanganmu bisa bertahan berapa lama?
         </Label>
         <div className="flex flex-col gap-2">
           {DANA_DARURAT_OPTIONS.map((opt) => (
