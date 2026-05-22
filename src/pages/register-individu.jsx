@@ -1682,7 +1682,18 @@ function RegisterIndividu() {
       })
 
       if (signUpError) {
-        alert(`Gagal membuat akun: ${signUpError.message}`)
+        if (
+          signUpError.message.includes('already registered') ||
+          signUpError.message.includes('already been registered')
+        ) {
+          alert(
+            'Email ini sudah terdaftar.\n\n' +
+            'Silakan login menggunakan email tersebut, ' +
+            'atau gunakan email lain untuk mendaftar.'
+          )
+        } else {
+          alert('Gagal membuat akun: ' + signUpError.message)
+        }
         return
       }
 
