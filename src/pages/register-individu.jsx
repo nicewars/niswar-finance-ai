@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, Info } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Info, Eye, EyeOff } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import AuthBackground from '@/components/AuthBackground'
@@ -433,9 +433,77 @@ function UMPInfoCard({ provinsi, kotaKabupaten }) {
 // STEP 1 — IDENTITAS DIRI
 // =========================================================
 function Step1({ formData, updateField, errors, today }) {
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-bold text-gray-800 mb-4">Identitas & Domisili</h2>
+
+      {/* ── Field Email ── */}
+      <div>
+        <Label htmlFor="email" className="block mb-1.5 text-sm font-medium text-gray-700">Email</Label>
+        <input
+          id="email"
+          type="email"
+          value={formData.email || ''}
+          onChange={(e) => updateField('email', e.target.value)}
+          placeholder="nama@email.com"
+          autoComplete="email"
+          className={inputClass}
+        />
+        <FieldError message={errors.email} />
+      </div>
+
+      {/* ── Field Kata Sandi ── */}
+      <div>
+        <Label htmlFor="password" className="block mb-1.5 text-sm font-medium text-gray-700">Kata Sandi</Label>
+        <div className="relative">
+          <input
+            id="password"
+            type={showPassword ? 'text' : 'password'}
+            value={formData.password || ''}
+            onChange={(e) => updateField('password', e.target.value)}
+            placeholder="Minimal 8 karakter"
+            autoComplete="new-password"
+            className={inputClass + ' pr-10'}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
+          >
+            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
+        <FieldError message={errors.password} />
+      </div>
+
+      {/* ── Field Konfirmasi Kata Sandi ── */}
+      <div>
+        <Label htmlFor="confirmPassword" className="block mb-1.5 text-sm font-medium text-gray-700">Konfirmasi Kata Sandi</Label>
+        <div className="relative">
+          <input
+            id="confirmPassword"
+            type={showConfirmPassword ? 'text' : 'password'}
+            value={formData.confirmPassword || ''}
+            onChange={(e) => updateField('confirmPassword', e.target.value)}
+            placeholder="Ulangi kata sandi"
+            autoComplete="new-password"
+            className={inputClass + ' pr-10'}
+          />
+          <button
+            type="button"
+            onClick={() => setShowConfirmPassword((v) => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label={showConfirmPassword ? 'Sembunyikan konfirmasi' : 'Tampilkan konfirmasi'}
+          >
+            {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
+        <FieldError message={errors.confirmPassword} />
+      </div>
 
       <div>
         <Label htmlFor="nama_lengkap" className="block mb-1.5 text-sm font-medium text-gray-700">Nama Lengkap</Label>
@@ -1486,6 +1554,23 @@ function RegisterIndividu() {
 
   function validateStep1() {
     const e = {}
+    // Akun
+    if (!formData.email?.trim()) {
+      e.email = 'Email wajib diisi'
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      e.email = 'Format email tidak valid'
+    }
+    if (!formData.password) {
+      e.password = 'Kata sandi wajib diisi'
+    } else if (formData.password.length < 8) {
+      e.password = 'Kata sandi minimal 8 karakter'
+    }
+    if (!formData.confirmPassword) {
+      e.confirmPassword = 'Konfirmasi kata sandi wajib diisi'
+    } else if (formData.confirmPassword !== formData.password) {
+      e.confirmPassword = 'Kata sandi tidak sama'
+    }
+    // Identitas
     if (!formData.nama_lengkap?.trim()) e.nama_lengkap = 'Nama lengkap wajib diisi'
     if (!formData.tanggal_lahir) e.tanggal_lahir = 'Tanggal lahir wajib diisi'
     if (!formData.jenis_kelamin) e.jenis_kelamin = 'Pilih jenis kelamin'
@@ -1583,21 +1668,31 @@ function RegisterIndividu() {
       // Supabase belum dikonfigurasi — beri tahu user dan tetap lanjut ke dashboard
       if (!supabase) {
         alert(
-          'Database belum terhubung (Supabase belum dikonfigurasi).\n\n' +
-          'Data Anda sudah tersimpan di perangkat ini. Koneksi database akan disetup di Minggu 4.'
+          'Database belum terhubung.\n\n' +
+          'Data Anda sudah tersimpan di perangkat ini.'
         )
         navigate('/dashboard')
         return
       }
 
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        alert('Sesi tidak ditemukan. Silakan login ulang.')
-        navigate('/login')
+      // ── Langkah 1: Buat akun Auth ────────────────────────────
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email:    formData.email,
+        password: formData.password,
+      })
+
+      if (signUpError) {
+        alert(`Gagal membuat akun: ${signUpError.message}`)
         return
       }
 
-      // Hitung deteksi UMP/UMK berdasarkan domisili yang diisi
+      const user = signUpData?.user
+      if (!user) {
+        alert('Gagal membuat akun. Silakan coba lagi.')
+        return
+      }
+
+      // ── Langkah 2: Simpan profil ke tabel profiles ───────────
       const detectedUmp = getUMPbyProvinsi(formData.provinsi) || null
       const detectedUmk = getUMKbyKota(formData.kotaKabupaten) || null
       const umkSource   = umkManual
@@ -1606,52 +1701,63 @@ function RegisterIndividu() {
         ? 'umk_database'
         : 'ump_fallback'
 
-      const { error } = await supabase.from('profiles').upsert({
+      const { error: profileError } = await supabase.from('profiles').insert({
         id: user.id,
         // Data pribadi
-        nama_lengkap:        formData.nama_lengkap,
-        tanggal_lahir:       formData.tanggal_lahir,
-        jenis_kelamin:       formData.jenis_kelamin,
-        agama:               formData.agama,
-        status_pernikahan:   formData.status_pernikahan,
-        jumlah_tanggungan:   parseInt(formData.jumlah_tanggungan) || 0,
+        nama_lengkap:       formData.nama_lengkap,
+        tanggal_lahir:      formData.tanggal_lahir,
+        jenis_kelamin:      formData.jenis_kelamin,
+        agama:              formData.agama,
+        status_pernikahan:  formData.status_pernikahan,
+        jumlah_tanggungan:  parseInt(formData.jumlah_tanggungan) || 0,
         // Domisili
-        provinsi:            formData.provinsi,
-        kota_kabupaten:      formData.kotaKabupaten,
-        kode_pos:            formData.kodePos || null,
-        // Karir
-        pekerjaan:           formData.pekerjaan,
-        pendidikan:          formData.pendidikan,
-        frekuensi_gajian:    formData.frekuensi_gajian,
-        tanggal_gajian:      parseInt(formData.tanggal_gajian) || null,
-        // Finansial
-        gaji_pokok:          parseInt(formData.gaji_pokok) || 0,
-        tunjangan_tetap:     parseInt(formData.tunjangan_tetap) || 0,
-        total_cicilan:       parseInt(formData.total_cicilan) || 0,
-        npwp:                formData.npwp || null,
-        // BPJS Kesehatan
-        bpjs_kes_peserta:           formData.bpjs_kes_peserta,
-        bpjs_kes_status:            formData.bpjs_kes_status || null,
-        bpjs_kes_kelas:             formData.bpjs_kes_kelas || null,
-        bpjs_kes_tambahan_keluarga: parseInt(formData.bpjs_kes_tambahan_keluarga) || 0,
-        // BPJS Ketenagakerjaan
-        bpjs_tk_peserta:  formData.bpjs_tk_peserta,
-        bpjs_tk_program:  formData.bpjs_tk_program || null,
-        bpjs_tk_risiko:   formData.bpjs_tk_risiko || null,
+        provinsi:           formData.provinsi,
+        kota_kabupaten:     formData.kotaKabupaten,
+        kode_pos:           formData.kodePos || null,
         // Deteksi UMP/UMK
-        detected_ump: detectedUmp,
-        detected_umk: detectedUmk,
-        umk_manual:   umkManual || null,
-        umk_source:   umkSource,
+        detected_ump:       detectedUmp,
+        detected_umk:       detectedUmk,
+        umk_manual:         umkManual || null,
+        umk_source:         umkSource,
+        // Karir
+        kategori_wajib_pajak: formData.kategoriWajibPajak || null,
+        pekerjaan_spesifik:   formData.pekerjaan || null,
+        tingkat_pendidikan:   formData.pendidikan || null,
+        gaji_pokok:           parseInt(formData.gaji_pokok) || 0,
+        tunjangan_tetap:      parseInt(formData.tunjangan_tetap) || 0,
+        frekuensi_gajian:     formData.frekuensi_gajian || null,
+        tanggal_gajian:       parseInt(formData.tanggal_gajian) || null,
+        total_cicilan:        parseInt(formData.total_cicilan) || 0,
+        npwp:                 formData.npwp || null,
+        // BPJS
+        bpjs_kesehatan:       formData.bpjs_kes_peserta || null,
+        bpjs_kes_kepesertaan: formData.bpjs_kes_status || null,
+        bpjs_tk:              formData.bpjs_tk_peserta || null,
+        bpjs_tk_programs:     formData.bpjs_tk_program || null,
+        // Step 3 — Aset & Proteksi
+        status_tempat:        formData.statusTempat || null,
+        dana_darurat:         formData.danaDarurat || null,
+        investasi_aktif:      formData.investasiAktif || null,
+        asuransi_jiwa:        formData.asuransiJiwa || null,
+        asuransi_kesehatan:   formData.asuransiKesehatan || null,
+        punya_kartu_kredit:   formData.punyaKartuKredit || null,
+        // Step 4 — Target Keuangan
+        tujuan_keuangan:      formData.tujuanKeuangan || null,
+        target_tabungan:      formData.targetTabungan || null,
+        profil_risiko:        formData.profilRisiko || null,
+        prioritas_keuangan:   formData.prioritasKeuangan || null,
       })
 
-      if (error) throw error
+      if (profileError) {
+        alert(`Gagal menyimpan profil: ${profileError.message}`)
+        return
+      }
 
       // Hapus draft lokal setelah berhasil simpan
       localStorage.removeItem(STORAGE_KEY)
       navigate('/dashboard')
     } catch (err) {
-      alert(`Gagal menyimpan data: ${err.message}`)
+      alert(`Gagal mendaftar: ${err.message}`)
     } finally {
       setSubmitting(false)
     }

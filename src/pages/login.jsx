@@ -1,10 +1,15 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Wallet, Eye, EyeOff } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
 import AuthBackground from '@/components/AuthBackground'
+import { supabase } from '@/lib/supabase'
+
+// Style input konsisten
+const inputClass =
+  'h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 ' +
+  'transition-colors outline-none placeholder:text-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
 
 // SVG logo Google colorful
 function GoogleIcon() {
@@ -19,7 +24,54 @@ function GoogleIcon() {
 }
 
 function Login() {
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
+  const [email, setEmail]               = useState('')
+  const [password, setPassword]         = useState('')
+  const [loading, setLoading]           = useState(false)
+  const [errorMsg, setErrorMsg]         = useState('')
+
+  // ── Login dengan email + password ───────────────────────
+  async function handleLogin() {
+    if (!email || !password) {
+      setErrorMsg('Email dan kata sandi wajib diisi')
+      return
+    }
+    if (!supabase) {
+      setErrorMsg('Database belum terhubung. Coba lagi nanti.')
+      return
+    }
+    setLoading(true)
+    setErrorMsg('')
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) {
+        setErrorMsg('Email atau kata sandi salah')
+      } else {
+        navigate('/dashboard')
+      }
+    } catch {
+      setErrorMsg('Terjadi kesalahan. Silakan coba lagi.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ── Login dengan Google OAuth ────────────────────────────
+  async function handleGoogleLogin() {
+    if (!supabase) {
+      setErrorMsg('Database belum terhubung. Coba lagi nanti.')
+      return
+    }
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin + '/dashboard' },
+      })
+    } catch {
+      setErrorMsg('Gagal masuk dengan Google. Silakan coba lagi.')
+    }
+  }
 
   return (
     <AuthBackground>
@@ -40,48 +92,54 @@ function Login() {
 
         {/* Subtext */}
         <p className="text-sm text-gray-500 text-center mb-6">
-          Masuk ke akun Finance Smart AI Anda
+          Masuk ke akun Niswar Finance AI Anda
         </p>
 
         {/* Field Email */}
         <div className="mb-4">
           <Label htmlFor="email" className="block mb-1.5 text-sm font-medium text-gray-700">
-            Email atau Username
+            Email
           </Label>
-          <Input
+          <input
             id="email"
             type="email"
-            placeholder="email@contoh.com"
-            className="w-full"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setErrorMsg('') }}
+            placeholder="nama@email.com"
+            autoComplete="email"
+            className={inputClass}
           />
         </div>
 
-        {/* Field Password — pakai native input untuk hindari toggle ganda */}
+        {/* Field Kata Sandi */}
         <div className="mb-5">
           <Label htmlFor="password" className="block mb-1.5 text-sm font-medium text-gray-700">
-            Password
+            Kata Sandi
           </Label>
           <div className="relative">
             <input
               id="password"
               type={showPassword ? 'text' : 'password'}
-              placeholder="Masukkan password"
-              autoComplete="new-password"
-              className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring pr-10"
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setErrorMsg('') }}
+              placeholder="Masukkan kata sandi"
+              autoComplete="current-password"
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              className={inputClass + ' pr-10'}
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+              aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi'}
             >
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>
         </div>
 
-        {/* Ingat saya + Lupa password */}
-        <div className="flex items-center justify-between mb-6">
+        {/* Ingat saya + Lupa kata sandi */}
+        <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
             <Checkbox id="remember" />
             <Label htmlFor="remember" className="text-sm font-normal text-gray-600 cursor-pointer">
@@ -89,16 +147,25 @@ function Login() {
             </Label>
           </div>
           <a href="#" className="text-sm text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
-            Lupa password?
+            Lupa kata sandi?
           </a>
         </div>
+
+        {/* Pesan error — di bawah form, bukan alert */}
+        {errorMsg && (
+          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-600">
+            ❌ {errorMsg}
+          </div>
+        )}
 
         {/* Tombol Masuk */}
         <button
           type="button"
-          className="w-full py-2.5 rounded-lg bg-gradient-to-r from-indigo-500 to-blue-500 text-white font-bold text-base hover:opacity-90 active:opacity-80 transition-opacity mb-4 cursor-pointer"
+          onClick={handleLogin}
+          disabled={loading}
+          className="w-full py-2.5 rounded-lg bg-gradient-to-r from-indigo-500 to-blue-500 text-white font-bold text-base hover:opacity-90 active:opacity-80 transition-opacity mb-4 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Masuk
+          {loading ? 'Masuk...' : 'Masuk'}
         </button>
 
         {/* Divider */}
@@ -111,6 +178,7 @@ function Login() {
         {/* Tombol Google */}
         <button
           type="button"
+          onClick={handleGoogleLogin}
           className="w-full py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium text-base hover:bg-gray-50 active:bg-gray-100 transition-colors flex items-center justify-center gap-2 mb-6 cursor-pointer"
         >
           <GoogleIcon />
