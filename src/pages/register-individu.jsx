@@ -99,6 +99,56 @@ const INVESTASI_OPTIONS = [
   'Belum berinvestasi',
 ]
 
+// Step 4 — Target Keuangan
+const TUJUAN_KEUANGAN_OPTIONS = [
+  'Membangun dana darurat',
+  'Melunasi utang / kredit',
+  'Membeli rumah atau properti',
+  'Mempersiapkan dana pensiun',
+  'Dana pendidikan anak',
+  'Menikah / membangun keluarga',
+  'Membeli kendaraan',
+  'Modal usaha / bisnis',
+  'Traveling atau pengalaman hidup',
+  'Investasi untuk pertumbuhan aset',
+  'Lainnya',
+]
+const TARGET_TABUNGAN_OPTIONS = [
+  'Kurang dari 5% pendapatan',
+  '5% - 10% pendapatan',
+  '10% - 20% pendapatan',
+  '20% - 30% pendapatan',
+  'Lebih dari 30% pendapatan',
+  'Belum tahu, butuh rekomendasi AI',
+]
+const PROFIL_RISIKO_OPTIONS = [
+  {
+    value: 'Konservatif',
+    ikon: '🛡️',
+    judul: 'Konservatif',
+    deskripsi: 'Keamanan lebih penting dari keuntungan. Lebih suka deposito dan obligasi pemerintah.',
+  },
+  {
+    value: 'Moderat',
+    ikon: '⚖️',
+    judul: 'Moderat',
+    deskripsi: 'Siap ambil sedikit risiko untuk pertumbuhan yang lebih baik. Kombinasi tabungan dan investasi.',
+  },
+  {
+    value: 'Agresif',
+    ikon: '🚀',
+    judul: 'Agresif',
+    deskripsi: 'Siap ambil risiko tinggi untuk potensi keuntungan maksimal. Nyaman dengan fluktuasi pasar.',
+  },
+]
+const PRIORITAS_OPTIONS = [
+  'Selesaikan semua utang dulu',
+  'Perkuat dana darurat dulu',
+  'Mulai investasi dulu',
+  'Nabung untuk tujuan spesifik dulu',
+  'Butuh bantuan AI untuk menentukan prioritas',
+]
+
 const inputClass = 'h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 transition-colors outline-none placeholder:text-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
 
 // =========================================================
@@ -1245,13 +1295,141 @@ function Step3({ formData, updateField, errors }) {
 }
 
 // =========================================================
-// STEP PLACEHOLDER (step 4)
+// STEP 4 — TARGET KEUANGAN
 // =========================================================
-function PlaceholderStep({ title }) {
+function Step4({ formData, updateField, errors }) {
+  const tujuan = formData.tujuanKeuangan ?? []
+
+  function toggleTujuan(opsi) {
+    const next = tujuan.includes(opsi)
+      ? tujuan.filter((t) => t !== opsi)
+      : [...tujuan, opsi]
+    updateField('tujuanKeuangan', next)
+  }
+
   return (
-    <div className="py-8 text-center">
-      <h2 className="text-xl font-bold text-gray-800 mb-2">{title}</h2>
-      <p className="text-gray-500 text-sm">Form step ini akan diimplementasi di tahap selanjutnya.</p>
+    <div className="space-y-4">
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Target Keuangan</h2>
+      <p className="text-sm text-gray-500 mb-2">
+        Bantu kami memahami tujuanmu agar AI bisa memberikan rekomendasi yang tepat.
+      </p>
+
+      {/* ── Section 1: Tujuan Keuangan ── */}
+      <SectionHeader title="Tujuan Keuangan" />
+
+      <div id="tujuanKeuangan">
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Apa tujuan keuanganmu saat ini?
+          <span className="ml-1.5 bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Boleh pilih lebih dari satu</span>
+        </Label>
+        <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+          {TUJUAN_KEUANGAN_OPTIONS.map((opt) => (
+            <label key={opt} className="flex items-center gap-2.5 cursor-pointer hover:bg-gray-50 -mx-2 px-2 py-1 rounded">
+              <Checkbox
+                checked={tujuan.includes(opt)}
+                onCheckedChange={() => toggleTujuan(opt)}
+              />
+              <span className="text-sm text-gray-700">{opt}</span>
+            </label>
+          ))}
+        </div>
+        <FieldError message={errors.tujuanKeuangan} />
+      </div>
+
+      {/* ── Section 2: Target Tabungan ── */}
+      <SectionHeader title="Target Tabungan Bulanan" />
+
+      <div id="targetTabungan">
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Berapa yang ingin kamu sisihkan setiap bulan?
+        </Label>
+        <div className="flex flex-col gap-2">
+          {TARGET_TABUNGAN_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => updateField('targetTabungan', opt)}
+              className={`py-2.5 px-3 rounded-lg text-sm font-medium border transition-colors cursor-pointer text-left ${
+                formData.targetTabungan === opt
+                  ? 'bg-indigo-500 text-white border-indigo-500'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] text-gray-500">
+          💡 Aturan umum: minimal 20% pendapatan untuk kesehatan keuangan jangka panjang.
+        </p>
+        <FieldError message={errors.targetTabungan} />
+      </div>
+
+      {/* ── Section 3: Profil Risiko ── */}
+      <SectionHeader title="Profil Risiko Investasi" />
+
+      <div id="profilRisiko">
+        <Label className="block mb-1 text-sm font-medium text-gray-700">
+          Bagaimana sikapmu terhadap risiko investasi?
+        </Label>
+        <p className="text-[11px] text-gray-500 mb-3">
+          Ini menentukan jenis rekomendasi investasi yang akan AI berikan untukmu.
+        </p>
+        <div className="space-y-3">
+          {PROFIL_RISIKO_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => updateField('profilRisiko', opt.value)}
+              className={`w-full flex items-start gap-3 p-4 rounded-xl border-2 transition-all cursor-pointer text-left ${
+                formData.profilRisiko === opt.value
+                  ? 'border-indigo-500 bg-indigo-50'
+                  : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <span className="text-2xl shrink-0 mt-0.5">{opt.ikon}</span>
+              <div className="flex-1">
+                <p className={`text-sm font-semibold ${
+                  formData.profilRisiko === opt.value ? 'text-indigo-700' : 'text-gray-800'
+                }`}>
+                  {opt.judul}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{opt.deskripsi}</p>
+              </div>
+              {formData.profilRisiko === opt.value && (
+                <Check size={16} className="shrink-0 text-indigo-500 mt-1" />
+              )}
+            </button>
+          ))}
+        </div>
+        <FieldError message={errors.profilRisiko} />
+      </div>
+
+      {/* ── Section 4: Prioritas Keuangan ── */}
+      <SectionHeader title="Prioritas Keuangan" />
+
+      <div id="prioritasKeuangan">
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Dari semua tujuanmu, mana yang paling ingin kamu selesaikan lebih dulu?
+        </Label>
+        <div className="flex flex-col gap-2">
+          {PRIORITAS_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => updateField('prioritasKeuangan', opt)}
+              className={`py-2.5 px-3 rounded-lg text-sm font-medium border transition-colors cursor-pointer text-left ${
+                formData.prioritasKeuangan === opt
+                  ? 'bg-indigo-500 text-white border-indigo-500'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+        <FieldError message={errors.prioritasKeuangan} />
+      </div>
     </div>
   )
 }
@@ -1358,6 +1536,17 @@ function RegisterIndividu() {
     return e
   }
 
+  function validateStep4() {
+    const e = {}
+    if (!formData.tujuanKeuangan || formData.tujuanKeuangan.length === 0) {
+      e.tujuanKeuangan = 'Pilih minimal 1 tujuan keuangan'
+    }
+    if (!formData.targetTabungan)    e.targetTabungan    = 'Pilih target tabungan bulanan'
+    if (!formData.profilRisiko)      e.profilRisiko      = 'Pilih profil risiko investasi'
+    if (!formData.prioritasKeuangan) e.prioritasKeuangan = 'Pilih prioritas keuangan'
+    return e
+  }
+
   function scrollToFirstError(errs) {
     const first = Object.keys(errs)[0]
     if (first) {
@@ -1368,9 +1557,10 @@ function RegisterIndividu() {
 
   function handleNext() {
     let errs = {}
-    if (currentStep === 1) errs = validateStep1()
+    if (currentStep === 1)      errs = validateStep1()
     else if (currentStep === 2) errs = validateStep2()
     else if (currentStep === 3) errs = validateStep3()
+    else if (currentStep === 4) errs = validateStep4()
 
     if (Object.keys(errs).length > 0) {
       setErrors(errs)
@@ -1488,7 +1678,7 @@ function RegisterIndividu() {
         {currentStep === 1 && <Step1 formData={formData} updateField={updateField} errors={errors} today={today} />}
         {currentStep === 2 && <Step2 formData={formData} updateField={updateField} errors={errors} umkManual={umkManual} />}
         {currentStep === 3 && <Step3 formData={formData} updateField={updateField} errors={errors} />}
-        {currentStep === 4 && <PlaceholderStep title="Target Finansial" />}
+        {currentStep === 4 && <Step4 formData={formData} updateField={updateField} errors={errors} />}
 
         <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
           <button
@@ -1503,10 +1693,17 @@ function RegisterIndividu() {
             type="button"
             onClick={handleNext}
             disabled={submitting}
-            className="flex items-center gap-1.5 px-6 py-2.5 rounded-lg bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-sm font-bold hover:opacity-90 active:opacity-80 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`flex items-center gap-1.5 px-6 py-2.5 rounded-lg text-white text-sm font-bold hover:opacity-90 active:opacity-80 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r ${
+              isLastStep
+                ? 'from-green-500 to-emerald-500'
+                : 'from-indigo-500 to-blue-500'
+            }`}
           >
-            {isLastStep ? (submitting ? 'Menyimpan...' : 'Daftar') : 'Lanjut'}
-            {!isLastStep && <ArrowRight size={16} />}
+            {isLastStep ? (
+              submitting ? 'Menyimpan profil...' : <><Check size={16} />Daftar</>
+            ) : (
+              <>Lanjut<ArrowRight size={16} /></>
+            )}
           </button>
         </div>
       </div>
