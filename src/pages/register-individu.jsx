@@ -16,7 +16,7 @@ const BPJS_TK = REGULATIONS_2026.bpjsKetenagakerjaan
 // KONSTANTA UI (bukan regulasi)
 // =========================================================
 const STORAGE_KEY = 'register_individu_form'
-const STEP_LABELS = ['Identitas & Domisili', 'Karir', 'Lokasi', 'Target']
+const STEP_LABELS = ['Identitas & Domisili', 'Karir', 'Aset & Proteksi', 'Target']
 const AGAMA_OPTIONS = ['Islam', 'Kristen', 'Katolik', 'Hindu', 'Buddha', 'Konghucu', 'Lainnya']
 const STATUS_OPTIONS = ['Lajang', 'Menikah', 'Cerai', 'Janda/Duda']
 const PENDIDIKAN_OPTIONS = ['SD', 'SMP', 'SMA/SMK', 'D3', 'S1', 'S2', 'S3']
@@ -63,6 +63,40 @@ const BPJS_TK_RISIKO_OPTIONS = [
   { value: 'Sedang', key: 'sedang', desc: 'teknisi, supir, lapangan ringan' },
   { value: 'Tinggi', key: 'tinggi', desc: 'pekerja pabrik, mekanik berat' },
   { value: 'Sangat Tinggi', key: 'sangatTinggi', desc: 'konstruksi, tambang, kelautan' },
+]
+
+// Step 3 — Aset & Proteksi
+const STATUS_TEMPAT_OPTIONS = [
+  'Rumah Sendiri (lunas)',
+  'KPR / Kredit Rumah',
+  'Sewa / Kontrak Bulanan',
+  'Kost',
+  'Tinggal dengan Orang Tua / Keluarga',
+  'Lainnya',
+]
+const KENDARAAN_OPTIONS = [
+  'Motor (tidak ada cicilan)',
+  'Motor (masih kredit)',
+  'Mobil (tidak ada cicilan)',
+  'Mobil (masih kredit)',
+  'Tidak punya kendaraan bermotor',
+]
+const DANA_DARURAT_OPTIONS = [
+  'Belum ada',
+  'Kurang dari 1 bulan',
+  '1 - 3 bulan',
+  '3 - 6 bulan',
+  'Lebih dari 6 bulan',
+]
+const INVESTASI_OPTIONS = [
+  'Deposito / Tabungan Berjangka',
+  'Reksa Dana',
+  'Saham',
+  'Emas / Logam Mulia',
+  'Obligasi / SBN',
+  'Properti (selain tempat tinggal)',
+  'Kripto',
+  'Belum berinvestasi',
 ]
 
 const inputClass = 'h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 transition-colors outline-none placeholder:text-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200'
@@ -440,6 +474,23 @@ function Step1({ formData, updateField, errors, today }) {
           className={inputClass}
         />
         <FieldError message={errors.kotaKabupaten} />
+      </div>
+
+      <div>
+        <Label htmlFor="kodePos" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
+          Kode Pos
+          <span className="bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
+        </Label>
+        <input
+          id="kodePos"
+          type="text"
+          inputMode="numeric"
+          value={formData.kodePos || ''}
+          onChange={(e) => updateField('kodePos', e.target.value.replace(/\D/g, '').slice(0, 5))}
+          placeholder="Contoh: 16412"
+          maxLength={5}
+          className={inputClass}
+        />
       </div>
 
       {/* Info card UMP/UMK — muncul otomatis setelah provinsi dipilih */}
@@ -945,49 +996,250 @@ function Step2({ formData, updateField, errors, umkManual }) {
 }
 
 // =========================================================
-// STEP 3 — LOKASI
+// STEP 3 — ASET & PROTEKSI
 // =========================================================
 function Step3({ formData, updateField, errors }) {
+  const kendaraan = formData.kepemilikanKendaraan ?? []
+  const adaKreditKendaraan = kendaraan.some((k) => k.includes('masih kredit'))
+  const investasi = formData.investasiAktif ?? []
+
+  function toggleKendaraan(opsi) {
+    const next = kendaraan.includes(opsi)
+      ? kendaraan.filter((k) => k !== opsi)
+      : [...kendaraan, opsi]
+    updateField('kepemilikanKendaraan', next)
+  }
+
+  function toggleInvestasi(opsi) {
+    const next = investasi.includes(opsi)
+      ? investasi.filter((i) => i !== opsi)
+      : [...investasi, opsi]
+    updateField('investasiAktif', next)
+  }
+
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold text-gray-800 mb-4">Lokasi</h2>
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Aset &amp; Proteksi</h2>
+      <p className="text-sm text-gray-500 mb-2">
+        Membantu kami memahami kondisi keuangan Anda saat ini untuk analisis yang lebih akurat.
+      </p>
 
-      {/* Ringkasan domisili dari Step 1 */}
-      {formData.provinsi && (
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 flex items-start gap-2">
-          <span className="text-indigo-400 mt-0.5">📍</span>
-          <div>
-            <p className="text-sm font-semibold text-indigo-900">
-              {formData.kotaKabupaten || '—'}, {formData.provinsi}
-            </p>
-            <p className="text-xs text-indigo-600 mt-0.5">
-              {formData.umkKota
-                ? `UMK: ${displayIDR(formData.umkKota)}`
-                : 'UMK tidak diisi — sistem pakai UMP Provinsi'}
-            </p>
+      {/* ── Section 1: Tempat Tinggal ── */}
+      <SectionHeader title="Tempat Tinggal" />
+
+      <div>
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Status Tempat Tinggal
+        </Label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {STATUS_TEMPAT_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => updateField('statusTempat', opt)}
+              className={`py-2.5 px-3 rounded-lg text-sm font-medium border transition-colors cursor-pointer text-left ${
+                formData.statusTempat === opt
+                  ? 'bg-indigo-500 text-white border-indigo-500'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+        <FieldError message={errors.statusTempat} />
+      </div>
+
+      {formData.statusTempat === 'KPR / Kredit Rumah' && (
+        <div>
+          <Label htmlFor="cicilanKPR" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
+            Cicilan KPR per bulan
+            <span className="bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
+          </Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none">Rp</span>
+            <input
+              id="cicilanKPR"
+              type="text"
+              inputMode="numeric"
+              value={formatRupiah(formData.cicilanKPR)}
+              onChange={(e) => updateField('cicilanKPR', e.target.value.replace(/\D/g, ''))}
+              placeholder="0"
+              className={inputClass + ' pl-10'}
+            />
           </div>
         </div>
       )}
 
+      {formData.statusTempat === 'Sewa / Kontrak Bulanan' && (
+        <div>
+          <Label htmlFor="biayaSewa" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
+            Biaya sewa / kontrak per bulan
+            <span className="bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
+          </Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none">Rp</span>
+            <input
+              id="biayaSewa"
+              type="text"
+              inputMode="numeric"
+              value={formatRupiah(formData.biayaSewa)}
+              onChange={(e) => updateField('biayaSewa', e.target.value.replace(/\D/g, ''))}
+              placeholder="0"
+              className={inputClass + ' pl-10'}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Section 2: Kendaraan ── */}
+      <SectionHeader title="Kendaraan" />
+
       <div>
-        <Label htmlFor="kode_pos" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
-          Kode Pos
-          <span className="bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Kepemilikan Kendaraan
+          <span className="ml-1.5 bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Boleh pilih lebih dari satu</span>
         </Label>
-        <input
-          id="kode_pos"
-          type="text"
-          inputMode="numeric"
-          value={formData.kode_pos || ''}
-          onChange={(e) => updateField('kode_pos', e.target.value.replace(/\D/g, '').slice(0, 5))}
-          placeholder="Contoh: 40123"
-          maxLength={5}
-          className={inputClass}
-        />
-        <p className="mt-1 text-xs text-gray-500">
-          Dipakai untuk fitur rekomendasi layanan keuangan terdekat (fase berikutnya)
-        </p>
+        <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+          {KENDARAAN_OPTIONS.map((opt) => (
+            <label key={opt} className="flex items-center gap-2.5 cursor-pointer hover:bg-gray-50 -mx-2 px-2 py-1 rounded">
+              <Checkbox
+                checked={kendaraan.includes(opt)}
+                onCheckedChange={() => toggleKendaraan(opt)}
+              />
+              <span className="text-sm text-gray-700">{opt}</span>
+            </label>
+          ))}
+        </div>
       </div>
+
+      {adaKreditKendaraan && (
+        <div>
+          <Label htmlFor="cicilanKendaraan" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
+            Total cicilan kendaraan per bulan
+            <span className="bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
+          </Label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm font-medium pointer-events-none">Rp</span>
+            <input
+              id="cicilanKendaraan"
+              type="text"
+              inputMode="numeric"
+              value={formatRupiah(formData.cicilanKendaraan)}
+              onChange={(e) => updateField('cicilanKendaraan', e.target.value.replace(/\D/g, ''))}
+              placeholder="0"
+              className={inputClass + ' pl-10'}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Section 3: Dana Darurat & Investasi ── */}
+      <SectionHeader title="Dana Darurat &amp; Investasi" />
+
+      <div>
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Berapa bulan pengeluaran yang tersimpan sebagai dana darurat?
+        </Label>
+        <div className="flex flex-col gap-2">
+          {DANA_DARURAT_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => updateField('danaDarurat', opt)}
+              className={`py-2.5 px-3 rounded-lg text-sm font-medium border transition-colors cursor-pointer text-left ${
+                formData.danaDarurat === opt
+                  ? 'bg-indigo-500 text-white border-indigo-500'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] text-gray-500">
+          💡 Dana darurat idealnya 3–6 bulan pengeluaran bulanan. Data ini digunakan untuk rekomendasi AI.
+        </p>
+        <FieldError message={errors.danaDarurat} />
+      </div>
+
+      <div>
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Instrumen investasi yang sedang Anda miliki:
+          <span className="ml-1.5 bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
+        </Label>
+        <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+          {INVESTASI_OPTIONS.map((opt) => (
+            <label key={opt} className="flex items-center gap-2.5 cursor-pointer hover:bg-gray-50 -mx-2 px-2 py-1 rounded">
+              <Checkbox
+                checked={investasi.includes(opt)}
+                onCheckedChange={() => toggleInvestasi(opt)}
+              />
+              <span className="text-sm text-gray-700">{opt}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Section 4: Proteksi ── */}
+      <SectionHeader title="Proteksi" subtitle="Di luar BPJS yang sudah diisi di Step 2" />
+
+      <div>
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Apakah Anda memiliki asuransi jiwa swasta?{' '}
+          <span className="text-[11px] font-normal text-gray-400">(di luar BPJS Ketenagakerjaan)</span>
+        </Label>
+        <PillGroup
+          id="asuransiJiwa"
+          options={['Ya, punya', 'Belum punya']}
+          value={formData.asuransiJiwa}
+          onChange={(val) => updateField('asuransiJiwa', val)}
+        />
+      </div>
+
+      <div>
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Apakah Anda memiliki asuransi kesehatan swasta?{' '}
+          <span className="text-[11px] font-normal text-gray-400">(di luar BPJS Kesehatan)</span>
+        </Label>
+        <PillGroup
+          id="asuransiKesehatan"
+          options={['Ya, punya', 'Belum punya']}
+          value={formData.asuransiKesehatan}
+          onChange={(val) => updateField('asuransiKesehatan', val)}
+        />
+      </div>
+
+      <div>
+        <Label className="block mb-1.5 text-sm font-medium text-gray-700">
+          Apakah Anda memiliki kartu kredit?
+        </Label>
+        <PillGroup
+          id="punyaKartuKredit"
+          options={['Ya', 'Tidak']}
+          value={formData.punyaKartuKredit}
+          onChange={(val) => updateField('punyaKartuKredit', val)}
+        />
+      </div>
+
+      {formData.punyaKartuKredit === 'Ya' && (
+        <div>
+          <Label htmlFor="jumlahKartuKredit" className="flex items-center gap-2 mb-1.5 text-sm font-medium text-gray-700">
+            Berapa kartu?
+            <span className="bg-gray-100 text-gray-500 text-[10px] font-medium px-1.5 py-0.5 rounded">Opsional</span>
+          </Label>
+          <input
+            id="jumlahKartuKredit"
+            type="number"
+            min="1"
+            max="10"
+            value={formData.jumlahKartuKredit ?? ''}
+            onChange={(e) => updateField('jumlahKartuKredit', e.target.value)}
+            placeholder="1"
+            className={inputClass}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -1100,9 +1352,10 @@ function RegisterIndividu() {
   }
 
   function validateStep3() {
-    // Provinsi & kota sudah divalidasi di Step 1.
-    // Semua field di Step 3 (kode_pos) bersifat opsional.
-    return {}
+    const e = {}
+    if (!formData.statusTempat) e.statusTempat = 'Pilih status tempat tinggal'
+    if (!formData.danaDarurat)  e.danaDarurat  = 'Pilih estimasi dana darurat'
+    return e
   }
 
   function scrollToFirstError(errs) {
@@ -1175,7 +1428,7 @@ function RegisterIndividu() {
         // Domisili
         provinsi:            formData.provinsi,
         kota_kabupaten:      formData.kotaKabupaten,
-        kode_pos:            formData.kode_pos || null,
+        kode_pos:            formData.kodePos || null,
         // Karir
         pekerjaan:           formData.pekerjaan,
         pendidikan:          formData.pendidikan,
