@@ -1701,6 +1701,11 @@ function RegisterIndividu() {
         ? 'umk_database'
         : 'ump_fallback'
 
+      // Helper: hapus titik pemisah ribuan lalu konversi ke float
+      const toFloat = (val) => parseFloat(String(val ?? '0').replace(/\./g, '')) || 0
+      const toFloatOrNull = (val) =>
+        val ? parseFloat(String(val).replace(/\./g, '')) || null : null
+
       const { error: profileError } = await supabase.from('profiles').insert({
         id: user.id,
         // Data pribadi
@@ -1720,32 +1725,43 @@ function RegisterIndividu() {
         umk_manual:         umkManual || null,
         umk_source:         umkSource,
         // Karir
-        kategori_wajib_pajak: formData.kategoriWajibPajak || null,
-        pekerjaan_spesifik:   formData.pekerjaan || null,
-        tingkat_pendidikan:   formData.pendidikan || null,
-        gaji_pokok:           parseInt(formData.gaji_pokok) || 0,
-        tunjangan_tetap:      parseInt(formData.tunjangan_tetap) || 0,
-        frekuensi_gajian:     formData.frekuensi_gajian || null,
-        tanggal_gajian:       parseInt(formData.tanggal_gajian) || null,
-        total_cicilan:        parseInt(formData.total_cicilan) || 0,
-        npwp:                 formData.npwp || null,
+        kategori_wajib_pajak:    formData.kategoriWajibPajak || null,
+        pekerjaan_spesifik:      formData.pekerjaan || null,
+        tingkat_pendidikan:      formData.pendidikan || null,
+        ada_pekerjaan_sampingan: formData.adaPekerjaanSampingan === true
+                                 || formData.adaPekerjaanSampingan === 'true',
+        // Numerik — pakai toFloat agar titik pemisah ribuan tidak jadi desimal
+        gaji_pokok:    toFloat(formData.gaji_pokok),
+        tunjangan_tetap: toFloat(formData.tunjangan_tetap),
+        total_cicilan: toFloat(formData.total_cicilan),
+        // Cicilan & sewa kondisional
+        cicilan_kpr:        toFloatOrNull(formData.cicilanKPR),
+        biaya_sewa:         toFloatOrNull(formData.biayaSewa),
+        cicilan_kendaraan:  toFloatOrNull(formData.cicilanKendaraan),
+        // Lainnya
+        frekuensi_gajian:   formData.frekuensi_gajian || null,
+        tanggal_gajian:     formData.tanggal_gajian ? parseInt(formData.tanggal_gajian) : null,
+        npwp:               formData.npwp || null,
         // BPJS
-        bpjs_kesehatan:       formData.bpjs_kes_peserta || null,
-        bpjs_kes_kepesertaan: formData.bpjs_kes_status || null,
-        bpjs_tk:              formData.bpjs_tk_peserta || null,
-        bpjs_tk_programs:     formData.bpjs_tk_program || null,
+        bpjs_kesehatan:              formData.bpjs_kes_peserta || null,
+        bpjs_kes_kepesertaan:        formData.bpjs_kes_status || null,
+        bpjs_kes_keluarga_tambahan:  parseInt(formData.bpjs_kes_tambahan_keluarga) || 0,
+        bpjs_tk:                     formData.bpjs_tk_peserta || null,
+        bpjs_tk_programs:            formData.bpjs_tk_program || null,
         // Step 3 — Aset & Proteksi
-        status_tempat:        formData.statusTempat || null,
-        dana_darurat:         formData.danaDarurat || null,
-        investasi_aktif:      formData.investasiAktif || null,
-        asuransi_jiwa:        formData.asuransiJiwa || null,
-        asuransi_kesehatan:   formData.asuransiKesehatan || null,
-        punya_kartu_kredit:   formData.punyaKartuKredit || null,
+        status_tempat:      formData.statusTempat || null,
+        dana_darurat:       formData.danaDarurat || null,
+        investasi_aktif:    formData.investasiAktif || null,
+        asuransi_jiwa:      formData.asuransiJiwa || null,
+        asuransi_kesehatan: formData.asuransiKesehatan || null,
+        // Boolean — konversi string 'Ya'/'Tidak' ke true/false
+        punya_kartu_kredit: formData.punyaKartuKredit === 'Ya',
+        jumlah_kartu_kredit: parseInt(formData.jumlahKartuKredit) || 0,
         // Step 4 — Target Keuangan
-        tujuan_keuangan:      formData.tujuanKeuangan || null,
-        target_tabungan:      formData.targetTabungan || null,
-        profil_risiko:        formData.profilRisiko || null,
-        prioritas_keuangan:   formData.prioritasKeuangan || null,
+        tujuan_keuangan:    formData.tujuanKeuangan || null,
+        target_tabungan:    formData.targetTabungan || null,
+        profil_risiko:      formData.profilRisiko || null,
+        prioritas_keuangan: formData.prioritasKeuangan || null,
       })
 
       if (profileError) {
