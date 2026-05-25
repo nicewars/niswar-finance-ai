@@ -143,7 +143,7 @@ function RupiahTooltip({ active, payload, label }) {
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 1 — ALOKASI GAJI (DONUT)
+// GRAFIK 1 — ALOKASI GAJI (DONUT — bersih, tanpa label eksternal)
 // ─────────────────────────────────────────────────────
 function Chart1Alokasi({ calc }) {
   const bpjs     = Math.round(calc.bpjsKesKaryawan + calc.bpjsTKKaryawan)
@@ -153,32 +153,19 @@ function Chart1Alokasi({ calc }) {
   const total    = bpjs + cicilan + tabungan + sisa || 1
 
   const data = [
-    { name: 'BPJS & Potongan',     value: bpjs,     color: '#FDA4AF' },
-    { name: 'Cicilan & Utang',     value: cicilan,   color: '#FCA877' },
-    { name: 'Target Tabungan',     value: tabungan,  color: '#6EE7B7' },
-    { name: 'Sisa / Disposable',   value: sisa,      color: '#93C5FD' },
+    { name: 'BPJS & Potongan',   short: 'BPJS',     value: bpjs,     color: '#FDA4AF' },
+    { name: 'Cicilan & Utang',   short: 'Cicilan',   value: cicilan,  color: '#FCA877' },
+    { name: 'Target Tabungan',   short: 'Tabungan',  value: tabungan, color: '#6EE7B7' },
+    { name: 'Sisa / Disposable', short: 'Sisa',      value: sisa,     color: '#93C5FD' },
   ].filter(d => d.value > 0)
 
-  const renderLabel = ({ cx, cy, midAngle, outerRadius, value, name }) => {
-    const RADIAN = Math.PI / 180
-    const r = outerRadius + 16
-    const x = cx + r * Math.cos(-midAngle * RADIAN)
-    const y = cy + r * Math.sin(-midAngle * RADIAN)
-    const persen = ((value / total) * 100).toFixed(0)
-    return (
-      <text x={x} y={y} textAnchor={x > cx ? 'start' : 'end'} fill="#6B7280" fontSize={9}>
-        {persen}%
-      </text>
-    )
-  }
-
-  // Label total di tengah donut (SVG overlay)
+  // Label Rp total di tengah lubang donut
   const CenterLabel = ({ viewBox }) => {
     const { cx, cy } = viewBox || {}
     return (
       <g>
-        <text x={cx} y={cy - 6} textAnchor="middle" fill="#374151" fontSize={9} fontWeight="500">Total</text>
-        <text x={cx} y={cy + 9} textAnchor="middle" fill="#6366F1" fontSize={10} fontWeight="700">
+        <text x={cx} y={cy - 7} textAnchor="middle" fill="#6B7280" fontSize={9} fontWeight="500">Total</text>
+        <text x={cx} y={cy + 8} textAnchor="middle" fill="#6366F1" fontSize={11} fontWeight="700">
           {`${(calc.totalPendapatan / 1e6).toFixed(1)}jt`}
         </text>
       </g>
@@ -186,19 +173,36 @@ function Chart1Alokasi({ calc }) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <PieChart>
-        <Pie data={data} cx="50%" cy="50%" innerRadius="38%" outerRadius="58%"
-          dataKey="value" labelLine={false} label={renderLabel}>
-          {data.map((d) => <Cell key={d.name} fill={d.color} />)}
-          <CenterLabel />
-        </Pie>
-        <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
-        <Tooltip formatter={(v, name) => [
-          `${idr(v)} (${((v / total) * 100).toFixed(1)}%)`, name
-        ]} />
-      </PieChart>
-    </ResponsiveContainer>
+    <div className="flex flex-col h-full" style={{ minHeight: 220 }}>
+      {/* Donut — mengisi sisa tinggi */}
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data} cx="50%" cy="50%"
+              innerRadius="40%" outerRadius="62%"
+              dataKey="value"
+            >
+              {data.map((d) => <Cell key={d.name} fill={d.color} />)}
+              <CenterLabel />
+            </Pie>
+            <Tooltip formatter={(v, name) => [
+              `${idr(v)} (${((v / total) * 100).toFixed(1)}%)`, name
+            ]} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Legend horizontal — wrap ke 2 baris jika sempit */}
+      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 pb-1 px-2 shrink-0">
+        {data.map((d) => (
+          <div key={d.name} className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
+            <span className="text-[10px] text-gray-500">{d.short}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -500,17 +504,16 @@ function CashflowTooltip({ active, payload, label }) {
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 6 — CASHFLOW HARIAN BULAN INI (scrollable)
+// GRAFIK 6 — CASHFLOW HARIAN BULAN INI (scrollable + drag)
 // ─────────────────────────────────────────────────────
 function Chart6Cashflow({ calc }) {
   const now   = new Date()
   const year  = now.getFullYear()
   const month = now.getMonth() + 1 // 1-indexed
 
-  const data         = generateSampleCashflowData(year, month, calc.totalPendapatan)
-  const daysInMonth  = data.length
-  // Lebar chart: minimal 400px, tiap hari 28px agar scroll terasa
-  const chartPxWidth = Math.max(400, daysInMonth * 28)
+  const data        = generateSampleCashflowData(year, month, calc.totalPendapatan)
+  const daysInMonth = data.length
+  const chartWidth  = daysInMonth * 32 // 32px/hari → 30 hari = 960px
 
   const totalMasuk  = data.reduce((s, d) => s + d.pemasukan,   0)
   const totalKeluar = data.reduce((s, d) => s + d.pengeluaran, 0)
@@ -519,6 +522,29 @@ function Chart6Cashflow({ calc }) {
   const BULAN     = ['Januari','Februari','Maret','April','Mei','Juni',
     'Juli','Agustus','September','Oktober','November','Desember']
   const namaBulan = BULAN[month - 1]
+
+  // Drag-to-scroll (mouse)
+  const scrollRef   = useRef(null)
+  const isDragging  = useRef(false)
+  const startX      = useRef(0)
+  const scrollStart = useRef(0)
+  const [dragging, setDragging] = useState(false)
+
+  const onMouseDown = (e) => {
+    if (!scrollRef.current) return
+    isDragging.current  = true
+    setDragging(true)
+    startX.current      = e.pageX - scrollRef.current.offsetLeft
+    scrollStart.current = scrollRef.current.scrollLeft
+  }
+  const onMouseMove = (e) => {
+    if (!isDragging.current || !scrollRef.current) return
+    e.preventDefault()
+    const x    = e.pageX - scrollRef.current.offsetLeft
+    const walk = x - startX.current
+    scrollRef.current.scrollLeft = scrollStart.current - walk
+  }
+  const stopDrag = () => { isDragging.current = false; setDragging(false) }
 
   return (
     <div className="flex flex-col h-full" style={{ gap: 4 }}>
@@ -546,33 +572,54 @@ function Chart6Cashflow({ calc }) {
         </div>
       </div>
 
-      {/* Area chart scrollable horizontal */}
+      {/* Chart scrollable + drag-to-scroll */}
       <div
-        style={{ overflowX: 'auto', flex: 1, minHeight: 0, scrollbarWidth: 'thin' }}
+        ref={scrollRef}
+        style={{
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          width: '100%',
+          cursor: dragging ? 'grabbing' : 'grab',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'thin',
+          flex: 1,
+          minHeight: 0,
+          userSelect: 'none',
+        }}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={stopDrag}
+        onMouseLeave={stopDrag}
         onTouchStart={(e) => e.stopPropagation()}
         onTouchEnd={(e) => e.stopPropagation()}
       >
-        <div style={{ width: chartPxWidth, height: '100%', minHeight: 145 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 2 }} barGap={1}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-              <XAxis dataKey="tanggal" tick={{ fontSize: 8 }} interval={4} />
-              <YAxis
-                tickFormatter={(v) => v >= 1_000_000
-                  ? `${(v / 1e6).toFixed(1)}jt`
-                  : `${(v / 1000).toFixed(0)}k`}
-                tick={{ fontSize: 8 }} width={28}
-              />
-              <Tooltip content={<CashflowTooltip />} />
-              <ReferenceLine y={0} stroke="#E5E7EB" />
-              <Bar dataKey="pemasukan"   fill="#93C5FD" barSize={9} name="Pemasukan" />
-              <Bar dataKey="pengeluaran" fill="#FCA5A5" barSize={9} name="Pengeluaran" />
-              <Line dataKey="saldo" type="monotone" stroke="#22C55E"
-                strokeWidth={1.5} dot={false} name="Saldo" />
-            </ComposedChart>
-          </ResponsiveContainer>
+        <div style={{ width: Math.max(chartWidth, 100) + 'px', minWidth: '100%' }}>
+          <ComposedChart
+            width={chartWidth} height={160} data={data}
+            margin={{ top: 4, right: 4, left: 0, bottom: 2 }} barGap={4}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+            <XAxis dataKey="tanggal" tick={{ fontSize: 8 }} />
+            <YAxis
+              tickFormatter={(v) => v >= 1_000_000
+                ? `${(v / 1e6).toFixed(1)}jt`
+                : `${(v / 1000).toFixed(0)}k`}
+              tick={{ fontSize: 8 }} width={28}
+            />
+            <Tooltip content={<CashflowTooltip />} />
+            <ReferenceLine y={0} stroke="#E5E7EB" />
+            <Bar dataKey="pemasukan"   fill="#93C5FD" barSize={10} name="Pemasukan" />
+            <Bar dataKey="pengeluaran" fill="#FCA5A5" barSize={10} name="Pengeluaran" />
+            <Line dataKey="saldo" type="monotone" stroke="#22C55E"
+              strokeWidth={1.5} dot={false} name="Saldo" />
+          </ComposedChart>
         </div>
       </div>
+
+      {/* Scroll indicator */}
+      <p className="text-[9px] text-gray-300 text-center shrink-0 select-none leading-none pb-0.5">
+        ← Geser untuk lihat semua hari →
+      </p>
     </div>
   )
 }
@@ -630,9 +677,10 @@ const CHART_META = [
 ]
 
 function ChartCarousel({ calc, profile }) {
-  const [idx, setIdx]       = useState(0)
-  const touchStartX         = useRef(null)
-  const total               = 7
+  const [idx, setIdx]               = useState(0)
+  const [showControls, setShowControls] = useState(false)
+  const touchStartX                 = useRef(null)
+  const total                       = 7
 
   const prev = () => setIdx((i) => Math.max(0, i - 1))
   const next = () => setIdx((i) => Math.min(total - 1, i + 1))
@@ -657,8 +705,12 @@ function ChartCarousel({ calc, profile }) {
   ]
 
   return (
-    <div className="group relative bg-white shadow-sm border-y border-gray-100"
-      style={{ width: '100vw', marginLeft: 'calc(-50vw + 50%)' }}>
+    <div
+      className="relative bg-white shadow-sm border-y border-gray-100"
+      style={{ width: '100vw', marginLeft: 'calc(-50vw + 50%)' }}
+      onMouseEnter={() => setShowControls(true)}
+      onMouseLeave={() => setShowControls(false)}
+    >
 
       {/* Label + nomor */}
       <div className="flex items-center justify-between px-5 pt-4 pb-1 max-w-5xl mx-auto">
@@ -683,30 +735,42 @@ function ChartCarousel({ calc, profile }) {
         </div>
       </div>
 
-      {/* Tombol panah — muncul saat hover wrapper, disabled di ujung */}
+      {/* Tombol panah — desktop only, muncul via showControls state */}
       <button
         onClick={prev}
         aria-label="Grafik sebelumnya"
-        style={{ transition: 'opacity 0.25s ease, transform 0.2s ease' }}
-        className={`carousel-btn absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white shadow border border-gray-200 flex items-center justify-center z-10 hover:scale-110 ${
-          idx === 0
-            ? 'opacity-0 group-hover:opacity-30 pointer-events-none cursor-not-allowed text-gray-300'
-            : 'opacity-0 group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none text-gray-400 hover:text-indigo-500 cursor-pointer'
-        }`}
+        className="hidden md:flex absolute top-1/2 -translate-y-1/2 items-center justify-center rounded-full z-20 hover:scale-[1.08]"
+        style={{
+          left: 12,
+          width: 44, height: 44,
+          background: 'rgba(255,255,255,0.9)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          border: 'none',
+          cursor: idx === 0 ? 'default' : 'pointer',
+          opacity: showControls ? (idx === 0 ? 0.3 : 1) : 0,
+          pointerEvents: showControls && idx > 0 ? 'auto' : 'none',
+          transition: 'opacity 0.2s ease, transform 0.2s ease',
+        }}
       >
-        <ChevronLeft size={18} />
+        <ChevronLeft size={20} color="#374151" />
       </button>
       <button
         onClick={next}
         aria-label="Grafik berikutnya"
-        style={{ transition: 'opacity 0.25s ease, transform 0.2s ease' }}
-        className={`carousel-btn absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white shadow border border-gray-200 flex items-center justify-center z-10 hover:scale-110 ${
-          idx === total - 1
-            ? 'opacity-0 group-hover:opacity-30 pointer-events-none cursor-not-allowed text-gray-300'
-            : 'opacity-0 group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none text-gray-400 hover:text-indigo-500 cursor-pointer'
-        }`}
+        className="hidden md:flex absolute top-1/2 -translate-y-1/2 items-center justify-center rounded-full z-20 hover:scale-[1.08]"
+        style={{
+          right: 12,
+          width: 44, height: 44,
+          background: 'rgba(255,255,255,0.9)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          border: 'none',
+          cursor: idx === total - 1 ? 'default' : 'pointer',
+          opacity: showControls ? (idx === total - 1 ? 0.3 : 1) : 0,
+          pointerEvents: showControls && idx < total - 1 ? 'auto' : 'none',
+          transition: 'opacity 0.2s ease, transform 0.2s ease',
+        }}
       >
-        <ChevronRight size={18} />
+        <ChevronRight size={20} color="#374151" />
       </button>
 
       {/* Dot indicator */}
