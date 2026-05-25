@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Wallet, LogOut, Settings, ChevronLeft, ChevronRight,
-  TrendingUp, TrendingDown, Minus, AlertCircle,
+  TrendingUp, TrendingDown, Minus, AlertCircle, Pencil,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -235,47 +235,61 @@ const DANA_DARURAT_BULAN = {
 }
 
 function Chart3Speedometer({ profile }) {
+  // maxBulan: target dana darurat, disimpan di localStorage
+  const [maxBulan, setMaxBulan] = useState(() => {
+    try {
+      const saved = localStorage.getItem('target_bulan_darurat')
+      const val   = saved ? parseInt(saved, 10) : 24
+      return isNaN(val) ? 24 : Math.max(6, Math.min(120, val))
+    } catch { return 24 }
+  })
+  const [isEditing, setIsEditing] = useState(false)
+  const [tempMax, setTempMax]     = useState(maxBulan)
+
   const nilai  = DANA_DARURAT_BULAN[profile?.dana_darurat] ?? 0
-  const maxVal = 10
-  // Warna berdasarkan zona
+  const maxVal = maxBulan
   const warna  = nilai < 3 ? '#EF4444' : nilai < 6 ? '#EAB308' : '#22C55E'
 
-  // Arc speedometer: setengah lingkaran atas (180° → 0°)
-  // Koordinat SVG: cx=100, cy=90, r=70
   const cx = 100, cy = 90, r = 70
   const toRad = (deg) => (deg * Math.PI) / 180
 
-  // Fungsi buat path arc
   const arcPath = (startDeg, endDeg, radius, innerRadius) => {
-    const s = { x: cx + radius * Math.cos(toRad(startDeg)), y: cy + radius * Math.sin(toRad(startDeg)) }
-    const e = { x: cx + radius * Math.cos(toRad(endDeg)),   y: cy + radius * Math.sin(toRad(endDeg)) }
+    const s  = { x: cx + radius * Math.cos(toRad(startDeg)), y: cy + radius * Math.sin(toRad(startDeg)) }
+    const e  = { x: cx + radius * Math.cos(toRad(endDeg)),   y: cy + radius * Math.sin(toRad(endDeg)) }
     const si = { x: cx + innerRadius * Math.cos(toRad(startDeg)), y: cy + innerRadius * Math.sin(toRad(startDeg)) }
     const ei = { x: cx + innerRadius * Math.cos(toRad(endDeg)),   y: cy + innerRadius * Math.sin(toRad(endDeg)) }
     const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0
     return `M${s.x},${s.y} A${radius},${radius} 0 ${large},1 ${e.x},${e.y} L${ei.x},${ei.y} A${innerRadius},${innerRadius} 0 ${large},0 ${si.x},${si.y} Z`
   }
 
-  // 0-3 bulan = merah, 3-6 = kuning, 6-10 = hijau
-  // Degree map: 180° = 0 bulan, 0° = 10 bulan (dari kiri ke kanan)
-  const valToDeg = (v) => 180 - (v / maxVal) * 180
-  const jarum    = valToDeg(Math.min(nilai, maxVal))
+  // Skala menyesuaikan maxVal; zona merah/kuning/hijau tetap absolut (3 & 6 bulan)
+  const valToDeg = (v) => 180 - (Math.min(v, maxVal) / maxVal) * 180
+  const zone3    = Math.min(3, maxVal)
+  const zone6    = Math.min(6, maxVal)
+  const jarum    = valToDeg(nilai)
+  const jarumX   = cx + (r - 8) * Math.cos(toRad(jarum))
+  const jarumY   = cy + (r - 8) * Math.sin(toRad(jarum))
 
-  // Jarum pointer
-  const jarumX = cx + (r - 8) * Math.cos(toRad(jarum))
-  const jarumY = cy + (r - 8) * Math.sin(toRad(jarum))
+  function saveMax(val) {
+    const clamped = Math.max(6, Math.min(120, parseInt(val, 10) || 24))
+    setMaxBulan(clamped)
+    setTempMax(clamped)
+    try { localStorage.setItem('target_bulan_darurat', String(clamped)) } catch {}
+    setIsEditing(false)
+  }
 
   return (
     <div className="flex flex-col items-center justify-center h-full">
-      <svg viewBox="0 0 200 110" width="100%" style={{ maxHeight: 160 }}>
+      <svg viewBox="0 0 200 110" width="100%" style={{ maxHeight: 148 }}>
         {/* Track abu-abu */}
         <path d={arcPath(180, 0, r, r - 16)} fill="#F3F4F6" />
-        {/* Zona merah 0-3 */}
-        <path d={arcPath(180, valToDeg(3), r, r - 16)} fill="#FCA5A5" />
-        {/* Zona kuning 3-6 */}
-        <path d={arcPath(valToDeg(3), valToDeg(6), r, r - 16)} fill="#FDE68A" />
-        {/* Zona hijau 6-10 */}
-        <path d={arcPath(valToDeg(6), 0, r, r - 16)} fill="#A7F3D0" />
-        {/* Arc aktif (nilai saat ini) */}
+        {/* Zona merah 0–3 bulan */}
+        {zone3 > 0 && <path d={arcPath(180, valToDeg(zone3), r, r - 16)} fill="#FCA5A5" />}
+        {/* Zona kuning 3–6 bulan */}
+        {zone6 > zone3 && <path d={arcPath(valToDeg(zone3), valToDeg(zone6), r, r - 16)} fill="#FDE68A" />}
+        {/* Zona hijau 6–max bulan */}
+        {maxVal > 6 && <path d={arcPath(valToDeg(zone6), 0, r, r - 16)} fill="#A7F3D0" />}
+        {/* Arc aktif */}
         {nilai > 0 && (
           <path d={arcPath(180, jarum, r, r - 16)} fill={warna} opacity={0.85} />
         )}
@@ -283,19 +297,50 @@ function Chart3Speedometer({ profile }) {
         <line x1={cx} y1={cy} x2={jarumX} y2={jarumY}
           stroke="#374151" strokeWidth={2.5} strokeLinecap="round" />
         <circle cx={cx} cy={cy} r={5} fill="#374151" />
-        {/* Label bulan */}
+        {/* Nilai tengah */}
         <text x={cx} y={cy + 18} textAnchor="middle" fill={warna} fontSize={20} fontWeight="800">{nilai}</text>
         <text x={cx} y={cy + 30} textAnchor="middle" fill="#6B7280" fontSize={8}>bulan</text>
-        {/* Tick labels */}
-        {[0, 3, 6, 10].map((v) => {
+        {/* Tick labels: 0, 3, 6, maxVal (tanpa duplikat) */}
+        {[0, zone3, zone6, maxVal].filter((v, i, a) => a.indexOf(v) === i).map((v) => {
           const deg = valToDeg(v)
           const tx  = cx + (r + 8) * Math.cos(toRad(deg))
           const ty  = cy + (r + 8) * Math.sin(toRad(deg))
           return <text key={v} x={tx} y={ty} textAnchor="middle" fill="#9CA3AF" fontSize={7}>{v}</text>
         })}
       </svg>
-      <p className="text-[10px] text-gray-400 text-center -mt-1">
-        Estimasi awal · Akurasi meningkat setelah mengisi anggaran bulanan
+
+      {/* Baris target & tombol edit */}
+      <div className="flex items-center gap-1.5 mt-0.5">
+        <span className="text-[10px] text-gray-400">Target:</span>
+        {isEditing ? (
+          <input
+            type="number"
+            value={tempMax}
+            onChange={(e) => setTempMax(e.target.value)}
+            onBlur={() => saveMax(tempMax)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter')  saveMax(tempMax)
+              if (e.key === 'Escape') setIsEditing(false)
+            }}
+            min={6} max={120}
+            className="w-12 text-[11px] text-center border border-indigo-300 rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-indigo-200"
+            autoFocus
+          />
+        ) : (
+          <span className="text-[10px] font-semibold text-gray-600">{maxBulan} bulan</span>
+        )}
+        <button
+          type="button"
+          onClick={() => { setTempMax(maxBulan); setIsEditing(!isEditing) }}
+          className="text-gray-300 hover:text-indigo-400 transition-colors cursor-pointer"
+          aria-label="Edit target dana darurat"
+        >
+          <Pencil size={10} />
+        </button>
+      </div>
+
+      <p className="text-[9px] text-gray-400 text-center mt-0.5">
+        Estimasi awal · Akurasi meningkat setelah mengisi anggaran
       </p>
     </div>
   )
@@ -380,40 +425,154 @@ function Chart5KondisiKeuangan({ calc }) {
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 6 — CASHFLOW BULANAN (ComposedChart)
+// GENERATOR DATA CASHFLOW HARIAN (sample, seed-based)
+// Seed dari bulan & tahun → data konsisten tiap render
+// ─────────────────────────────────────────────────────
+function seededRand(seed) {
+  const x = Math.sin(seed + 1) * 10000
+  return x - Math.floor(x)
+}
+
+function generateSampleCashflowData(year, month, gajiPokok) {
+  const gaji        = gajiPokok || 5_000_000
+  const seed        = month * 31 + year % 100
+  const daysInMonth = new Date(year, month, 0).getDate() // month 1-based
+
+  const data = []
+  let saldo = 0
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    let pemasukan   = 0
+    let pengeluaran = 0
+
+    // Tanggal 20: gaji masuk
+    if (d === 20) {
+      pemasukan = gaji
+    }
+
+    // Tanggal 1–5: kebutuhan awal bulan (sewa, listrik, dll) — ~30-40% gaji
+    if (d >= 1 && d <= 5) {
+      const totalAwal = gaji * (0.30 + seededRand(seed + d) * 0.10)
+      const porsi     = 0.5 + seededRand(seed + d + 100) * 1.0
+      pengeluaran     = Math.round((totalAwal / 5) * porsi)
+    }
+
+    // Tanggal 10 dan 25: belanja / kebutuhan mingguan (~5-10% gaji)
+    if (d === 10 || d === 25) {
+      pengeluaran += Math.round(gaji * (0.05 + seededRand(seed + d + 200) * 0.05))
+    }
+
+    // Hari lain: pengeluaran kecil acak (65% probabilitas, Rp 10rb–150rb)
+    const isSpecial = d === 20 || (d >= 1 && d <= 5) || d === 10 || d === 25
+    if (!isSpecial && seededRand(seed + d + 300) < 0.65) {
+      pengeluaran += Math.round(10_000 + seededRand(seed + d + 400) * 140_000)
+    }
+
+    saldo += pemasukan - pengeluaran
+    data.push({
+      tanggal:     d,
+      pemasukan:   Math.round(pemasukan),
+      pengeluaran: Math.round(pengeluaran),
+      saldo:       Math.round(saldo),
+    })
+  }
+  return data
+}
+
+// Tooltip custom untuk cashflow harian
+function CashflowTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  const masuk  = payload.find(p => p.dataKey === 'pemasukan')?.value  || 0
+  const keluar = payload.find(p => p.dataKey === 'pengeluaran')?.value || 0
+  const saldo  = payload.find(p => p.dataKey === 'saldo')?.value
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-lg text-xs">
+      <p className="font-semibold text-gray-700 mb-1">Tgl {label}</p>
+      {masuk  > 0 && <p className="text-blue-500">Masuk: {idr(masuk)}</p>}
+      {keluar > 0 && <p className="text-red-400">Keluar: {idr(keluar)}</p>}
+      {saldo !== undefined && (
+        <p className={`font-bold mt-0.5 ${saldo >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+          Saldo: {idr(saldo)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────
+// GRAFIK 6 — CASHFLOW HARIAN BULAN INI (scrollable)
 // ─────────────────────────────────────────────────────
 function Chart6Cashflow({ calc }) {
-  const pemasukan    = calc.totalPendapatan
-  const pengeluaran  = calc.totalPotonganKaryawan + calc.estimasiTabungan
-  const surplus      = pemasukan - pengeluaran
-  const surplusColor = surplus >= 0 ? '#22C55E' : '#EF4444'
+  const now   = new Date()
+  const year  = now.getFullYear()
+  const month = now.getMonth() + 1 // 1-indexed
 
-  const data = Array.from({ length: 6 }, (_, i) => ({
-    bulan:       `Bln ${i + 1}`,
-    Pemasukan:   Math.round(pemasukan),
-    Pengeluaran: Math.round(pengeluaran),
-    Surplus:     Math.round(surplus),
-  }))
+  const data         = generateSampleCashflowData(year, month, calc.totalPendapatan)
+  const daysInMonth  = data.length
+  // Lebar chart: minimal 400px, tiap hari 28px agar scroll terasa
+  const chartPxWidth = Math.max(400, daysInMonth * 28)
+
+  const totalMasuk  = data.reduce((s, d) => s + d.pemasukan,   0)
+  const totalKeluar = data.reduce((s, d) => s + d.pengeluaran, 0)
+  const net         = totalMasuk - totalKeluar
+
+  const BULAN     = ['Januari','Februari','Maret','April','Mei','Juni',
+    'Juli','Agustus','September','Oktober','November','Desember']
+  const namaBulan = BULAN[month - 1]
 
   return (
-    <div className="flex flex-col h-full">
-      <ResponsiveContainer width="100%" height="88%">
-        <ComposedChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 4 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-          <XAxis dataKey="bulan" tick={{ fontSize: 10 }} />
-          <YAxis tickFormatter={(v) => `${(v / 1e6).toFixed(1)}jt`} tick={{ fontSize: 10 }} width={36} />
-          <Tooltip content={<RupiahTooltip />} />
-          <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
-          <ReferenceLine y={0} stroke="#E5E7EB" />
-          <Bar dataKey="Pemasukan"   fill="#93C5FD" radius={[4, 4, 0, 0]} name="Pemasukan" />
-          <Bar dataKey="Pengeluaran" fill="#FCA5A5" radius={[4, 4, 0, 0]} name="Pengeluaran" />
-          <Line dataKey="Surplus" type="monotone" stroke={surplusColor}
-            strokeWidth={2} dot={{ fill: surplusColor, r: 3 }} name="Surplus" />
-        </ComposedChart>
-      </ResponsiveContainer>
-      <p className="text-[10px] text-gray-400 text-center">
-        Proyeksi penghasilan & potongan tetap · Diperbarui otomatis setelah input transaksi
-      </p>
+    <div className="flex flex-col h-full" style={{ gap: 4 }}>
+
+      {/* Header + 3 badge ringkasan */}
+      <div className="shrink-0 px-1">
+        <p className="text-xs font-semibold text-gray-700 mb-1.5">
+          Cashflow {namaBulan} {year}
+        </p>
+        <div className="flex gap-1.5">
+          <div className="flex-1 bg-blue-50 rounded-lg px-1.5 py-1 text-center">
+            <p className="text-[9px] text-blue-400">Total Masuk</p>
+            <p className="text-[10px] font-bold text-blue-700 font-mono leading-tight">{idr(totalMasuk)}</p>
+          </div>
+          <div className="flex-1 bg-red-50 rounded-lg px-1.5 py-1 text-center">
+            <p className="text-[9px] text-red-400">Total Keluar</p>
+            <p className="text-[10px] font-bold text-red-500 font-mono leading-tight">{idr(totalKeluar)}</p>
+          </div>
+          <div className={`flex-1 rounded-lg px-1.5 py-1 text-center ${net >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+            <p className={`text-[9px] ${net >= 0 ? 'text-green-500' : 'text-red-400'}`}>Net</p>
+            <p className={`text-[10px] font-bold font-mono leading-tight ${net >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+              {idr(net)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Area chart scrollable horizontal */}
+      <div
+        style={{ overflowX: 'auto', flex: 1, minHeight: 0, scrollbarWidth: 'thin' }}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchEnd={(e) => e.stopPropagation()}
+      >
+        <div style={{ width: chartPxWidth, height: '100%', minHeight: 145 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 2 }} barGap={1}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="tanggal" tick={{ fontSize: 8 }} interval={4} />
+              <YAxis
+                tickFormatter={(v) => v >= 1_000_000
+                  ? `${(v / 1e6).toFixed(1)}jt`
+                  : `${(v / 1000).toFixed(0)}k`}
+                tick={{ fontSize: 8 }} width={28}
+              />
+              <Tooltip content={<CashflowTooltip />} />
+              <ReferenceLine y={0} stroke="#E5E7EB" />
+              <Bar dataKey="pemasukan"   fill="#93C5FD" barSize={9} name="Pemasukan" />
+              <Bar dataKey="pengeluaran" fill="#FCA5A5" barSize={9} name="Pengeluaran" />
+              <Line dataKey="saldo" type="monotone" stroke="#22C55E"
+                strokeWidth={1.5} dot={false} name="Saldo" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
     </div>
   )
 }
@@ -475,8 +634,8 @@ function ChartCarousel({ calc, profile }) {
   const touchStartX         = useRef(null)
   const total               = 7
 
-  const prev = () => setIdx((i) => (i - 1 + total) % total)
-  const next = () => setIdx((i) => (i + 1) % total)
+  const prev = () => setIdx((i) => Math.max(0, i - 1))
+  const next = () => setIdx((i) => Math.min(total - 1, i + 1))
 
   const onTouchStart = (e) => { touchStartX.current = e.touches[0].clientX }
   const onTouchEnd   = (e) => {
@@ -498,7 +657,7 @@ function ChartCarousel({ calc, profile }) {
   ]
 
   return (
-    <div className="relative bg-white shadow-sm border-y border-gray-100"
+    <div className="group relative bg-white shadow-sm border-y border-gray-100"
       style={{ width: '100vw', marginLeft: 'calc(-50vw + 50%)' }}>
 
       {/* Label + nomor */}
@@ -524,13 +683,29 @@ function ChartCarousel({ calc, profile }) {
         </div>
       </div>
 
-      {/* Tombol panah — desktop only */}
-      <button onClick={prev}
-        className="hidden md:flex absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white shadow border border-gray-200 items-center justify-center text-gray-400 hover:text-indigo-500 transition-colors cursor-pointer z-10">
+      {/* Tombol panah — muncul saat hover wrapper, disabled di ujung */}
+      <button
+        onClick={prev}
+        aria-label="Grafik sebelumnya"
+        style={{ transition: 'opacity 0.25s ease, transform 0.2s ease' }}
+        className={`carousel-btn absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white shadow border border-gray-200 flex items-center justify-center z-10 hover:scale-110 ${
+          idx === 0
+            ? 'opacity-0 group-hover:opacity-30 pointer-events-none cursor-not-allowed text-gray-300'
+            : 'opacity-0 group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none text-gray-400 hover:text-indigo-500 cursor-pointer'
+        }`}
+      >
         <ChevronLeft size={18} />
       </button>
-      <button onClick={next}
-        className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white shadow border border-gray-200 items-center justify-center text-gray-400 hover:text-indigo-500 transition-colors cursor-pointer z-10">
+      <button
+        onClick={next}
+        aria-label="Grafik berikutnya"
+        style={{ transition: 'opacity 0.25s ease, transform 0.2s ease' }}
+        className={`carousel-btn absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white shadow border border-gray-200 flex items-center justify-center z-10 hover:scale-110 ${
+          idx === total - 1
+            ? 'opacity-0 group-hover:opacity-30 pointer-events-none cursor-not-allowed text-gray-300'
+            : 'opacity-0 group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none text-gray-400 hover:text-indigo-500 cursor-pointer'
+        }`}
+      >
         <ChevronRight size={18} />
       </button>
 
