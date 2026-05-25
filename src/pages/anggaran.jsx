@@ -225,7 +225,7 @@ function Anggaran() {
 
   // ── Simpan budget ──────────────────────────────────
   async function saveBudget(id) {
-    const val = Number(editValue) || 0
+    const val = parseRupiah(editValue)
     await supabase.from('accounts').update({ monthly_budget: val }).eq('id', id)
     const userId = session?.user?.id
     if (userId) await fetchAccounts(userId)
@@ -244,7 +244,7 @@ function Anggaran() {
       account_type:   parentAccount.account_type,
       icon:           '💰',
       color:          parentAccount.color || '#6366f1',
-      monthly_budget: Number(newSubBudget) || 0,
+      monthly_budget: parseRupiah(newSubBudget),
       order_index:    subs.length,
       is_system:      false,
       is_averaged:    false,
@@ -254,6 +254,19 @@ function Anggaran() {
     setAddingParentId(null)
     setNewSubName('')
     setNewSubBudget(0)
+  }
+
+  // ── Format helpers untuk input Rupiah ─────────────
+  const formatRupiah = (value) => {
+    // Hapus semua karakter non-angka dulu
+    const angka = String(value).replace(/\D/g, '')
+    // Tambahkan titik setiap 3 digit dari kanan
+    return angka.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  }
+
+  const parseRupiah = (value) => {
+    // Hapus semua titik dan kembalikan sebagai angka
+    return parseFloat(String(value).replace(/\./g, '')) || 0
   }
 
   // ── Loading state ──────────────────────────────────
@@ -455,9 +468,20 @@ function Anggaran() {
                           {isEditing ? (
                             <div className="mt-1">
                               <input
-                                type="number"
-                                value={editValue}
-                                onChange={e => setEditValue(e.target.value)}
+                                type="text"
+                                inputMode="numeric"
+                                value={editValue === '' ? '' : formatRupiah(editValue)}
+                                onFocus={e => {
+                                  if (parseRupiah(e.target.value) === 0) {
+                                    setEditValue('')
+                                  } else {
+                                    e.target.select()
+                                  }
+                                }}
+                                onChange={e => {
+                                  const angkaMurni = e.target.value.replace(/\D/g, '')
+                                  setEditValue(angkaMurni)
+                                }}
                                 onKeyDown={e => {
                                   if (e.key === 'Enter')  saveBudget(akun.id)
                                   if (e.key === 'Escape') setEditingId(null)
@@ -557,9 +581,17 @@ function Anggaran() {
                           autoFocus
                         />
                         <input
-                          type="number"
-                          value={newSubBudget || ''}
-                          onChange={e => setNewSubBudget(e.target.value)}
+                          type="text"
+                          inputMode="numeric"
+                          value={newSubBudget === '' || newSubBudget === 0 ? '' : formatRupiah(newSubBudget)}
+                          onFocus={e => {
+                            if (parseRupiah(e.target.value) === 0) setNewSubBudget('')
+                            else e.target.select()
+                          }}
+                          onChange={e => {
+                            const angkaMurni = e.target.value.replace(/\D/g, '')
+                            setNewSubBudget(angkaMurni)
+                          }}
                           placeholder="Anggaran per bulan (Rp)"
                           className="w-full border border-indigo-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-200 mb-2 bg-white"
                         />
@@ -729,9 +761,20 @@ function Anggaran() {
                                 <td className="px-4 py-2.5 text-right">
                                   {isEditingThis ? (
                                     <input
-                                      type="number"
-                                      value={editValue}
-                                      onChange={e => setEditValue(e.target.value)}
+                                      type="text"
+                                      inputMode="numeric"
+                                      value={editValue === '' ? '' : formatRupiah(editValue)}
+                                      onFocus={e => {
+                                        if (parseRupiah(e.target.value) === 0) {
+                                          setEditValue('')
+                                        } else {
+                                          e.target.select()
+                                        }
+                                      }}
+                                      onChange={e => {
+                                        const angkaMurni = e.target.value.replace(/\D/g, '')
+                                        setEditValue(angkaMurni)
+                                      }}
                                       onBlur={() => saveBudget(akun.id)}
                                       onKeyDown={e => {
                                         if (e.key === 'Enter')  saveBudget(akun.id)
