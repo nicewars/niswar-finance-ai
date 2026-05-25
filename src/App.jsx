@@ -3,6 +3,7 @@ import Login from './pages/login'
 import RegisterType from './pages/register-type'
 import RegisterIndividu from './pages/register-individu'
 import Dashboard from './pages/dashboard'
+import Settings from './pages/settings'
 import SettingsProfil from './pages/settings-profil'
 import './App.css'
 
@@ -15,6 +16,7 @@ function App() {
         <Route path="/register-type" element={<RegisterType />} />
         <Route path="/register/individu" element={<RegisterIndividu />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/settings/profil" element={<SettingsProfil />} />
       </Routes>
     </BrowserRouter>

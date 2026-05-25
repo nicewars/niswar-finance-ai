@@ -9,7 +9,9 @@ import {
   RadialBarChart, RadialBar, PolarAngleAxis,
   PieChart, Pie, Cell,
   RadarChart, Radar, PolarGrid, PolarRadiusAxis,
-  AreaChart, Area,
+  LineChart, Line,
+  ComposedChart,
+  ReferenceLine,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 
@@ -141,34 +143,67 @@ function RupiahTooltip({ active, payload, label }) {
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 1 — ALOKASI GAJI
+// GRAFIK 1 — ALOKASI GAJI (DONUT)
 // ─────────────────────────────────────────────────────
 function Chart1Alokasi({ calc }) {
-  const data = [{
-    name: 'Gaji',
-    BPJS:     Math.round(calc.bpjsKesKaryawan + calc.bpjsTKKaryawan),
-    Cicilan:  Math.round(calc.cicilan),
-    Tabungan: Math.round(calc.estimasiTabungan),
-    Sisa:     Math.round(Math.max(0, calc.sisaGaji)),
-  }]
+  const bpjs     = Math.round(calc.bpjsKesKaryawan + calc.bpjsTKKaryawan)
+  const cicilan  = Math.round(calc.cicilan)
+  const tabungan = Math.round(calc.estimasiTabungan)
+  const sisa     = Math.round(Math.max(0, calc.sisaGaji))
+  const total    = bpjs + cicilan + tabungan + sisa || 1
+
+  const data = [
+    { name: 'BPJS & Potongan',     value: bpjs,     color: '#FDA4AF' },
+    { name: 'Cicilan & Utang',     value: cicilan,   color: '#FCA877' },
+    { name: 'Target Tabungan',     value: tabungan,  color: '#6EE7B7' },
+    { name: 'Sisa / Disposable',   value: sisa,      color: '#93C5FD' },
+  ].filter(d => d.value > 0)
+
+  const renderLabel = ({ cx, cy, midAngle, outerRadius, value, name }) => {
+    const RADIAN = Math.PI / 180
+    const r = outerRadius + 16
+    const x = cx + r * Math.cos(-midAngle * RADIAN)
+    const y = cy + r * Math.sin(-midAngle * RADIAN)
+    const persen = ((value / total) * 100).toFixed(0)
+    return (
+      <text x={x} y={y} textAnchor={x > cx ? 'start' : 'end'} fill="#6B7280" fontSize={9}>
+        {persen}%
+      </text>
+    )
+  }
+
+  // Label total di tengah donut (SVG overlay)
+  const CenterLabel = ({ viewBox }) => {
+    const { cx, cy } = viewBox || {}
+    return (
+      <g>
+        <text x={cx} y={cy - 6} textAnchor="middle" fill="#374151" fontSize={9} fontWeight="500">Total</text>
+        <text x={cx} y={cy + 9} textAnchor="middle" fill="#6366F1" fontSize={10} fontWeight="700">
+          {`${(calc.totalPendapatan / 1e6).toFixed(1)}jt`}
+        </text>
+      </g>
+    )
+  }
+
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-        <XAxis type="number" tickFormatter={(v) => `${(v / 1e6).toFixed(1)}jt`} tick={{ fontSize: 10 }} />
-        <YAxis type="category" dataKey="name" hide />
-        <Tooltip content={<RupiahTooltip />} />
-        <Legend wrapperStyle={{ fontSize: 11 }} iconSize={8} />
-        <Bar dataKey="BPJS"     stackId="a" fill="#FDA4AF" name="BPJS" />
-        <Bar dataKey="Cicilan"  stackId="a" fill="#FCA877" name="Cicilan" />
-        <Bar dataKey="Tabungan" stackId="a" fill="#6EE7B7" name="Tabungan" />
-        <Bar dataKey="Sisa"     stackId="a" fill="#93C5FD" name="Sisa" radius={[0, 6, 6, 0]} />
-      </BarChart>
+      <PieChart>
+        <Pie data={data} cx="50%" cy="50%" innerRadius="38%" outerRadius="58%"
+          dataKey="value" labelLine={false} label={renderLabel}>
+          {data.map((d) => <Cell key={d.name} fill={d.color} />)}
+          <CenterLabel />
+        </Pie>
+        <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
+        <Tooltip formatter={(v, name) => [
+          `${idr(v)} (${((v / total) * 100).toFixed(1)}%)`, name
+        ]} />
+      </PieChart>
     </ResponsiveContainer>
   )
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 2 — DEBT-TO-INCOME RATIO
+// GRAFIK 2 — DEBT-TO-INCOME RATIO (TIDAK BERUBAH)
 // ─────────────────────────────────────────────────────
 function Chart2Debt({ calc }) {
   const ratio = Math.min(calc.debtRatio, 100)
@@ -192,98 +227,127 @@ function Chart2Debt({ calc }) {
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 3 — DANA DARURAT
+// GRAFIK 3 — KETAHANAN DANA DARURAT (SPEEDOMETER)
 // ─────────────────────────────────────────────────────
-function Chart3DanaDarurat({ profile }) {
-  const nilai = DANA_DARURAT_NILAI[profile?.dana_darurat] ?? 0
-  const color = nilai >= 3 ? '#22C55E' : '#EF4444'
-  const data  = [{ name: 'Dana Darurat', nilai }]
+const DANA_DARURAT_BULAN = {
+  'Belum ada': 0, 'Kurang dari 1 bulan': 0.5,
+  '1 - 3 bulan': 2, '3 - 6 bulan': 4.5, 'Lebih dari 6 bulan': 7,
+}
+
+function Chart3Speedometer({ profile }) {
+  const nilai  = DANA_DARURAT_BULAN[profile?.dana_darurat] ?? 0
+  const maxVal = 10
+  // Warna berdasarkan zona
+  const warna  = nilai < 3 ? '#EF4444' : nilai < 6 ? '#EAB308' : '#22C55E'
+
+  // Arc speedometer: setengah lingkaran atas (180° → 0°)
+  // Koordinat SVG: cx=100, cy=90, r=70
+  const cx = 100, cy = 90, r = 70
+  const toRad = (deg) => (deg * Math.PI) / 180
+
+  // Fungsi buat path arc
+  const arcPath = (startDeg, endDeg, radius, innerRadius) => {
+    const s = { x: cx + radius * Math.cos(toRad(startDeg)), y: cy + radius * Math.sin(toRad(startDeg)) }
+    const e = { x: cx + radius * Math.cos(toRad(endDeg)),   y: cy + radius * Math.sin(toRad(endDeg)) }
+    const si = { x: cx + innerRadius * Math.cos(toRad(startDeg)), y: cy + innerRadius * Math.sin(toRad(startDeg)) }
+    const ei = { x: cx + innerRadius * Math.cos(toRad(endDeg)),   y: cy + innerRadius * Math.sin(toRad(endDeg)) }
+    const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0
+    return `M${s.x},${s.y} A${radius},${radius} 0 ${large},1 ${e.x},${e.y} L${ei.x},${ei.y} A${innerRadius},${innerRadius} 0 ${large},0 ${si.x},${si.y} Z`
+  }
+
+  // 0-3 bulan = merah, 3-6 = kuning, 6-10 = hijau
+  // Degree map: 180° = 0 bulan, 0° = 10 bulan (dari kiri ke kanan)
+  const valToDeg = (v) => 180 - (v / maxVal) * 180
+  const jarum    = valToDeg(Math.min(nilai, maxVal))
+
+  // Jarum pointer
+  const jarumX = cx + (r - 8) * Math.cos(toRad(jarum))
+  const jarumY = cy + (r - 8) * Math.sin(toRad(jarum))
+
   return (
-    <div className="flex flex-col h-full">
-      <ResponsiveContainer width="100%" height="85%">
-        <BarChart data={data} layout="vertical" margin={{ top: 8, right: 40, left: 8, bottom: 4 }}>
-          <XAxis type="number" domain={[0, 6]} ticks={[0, 1, 2, 3, 4, 5, 6]}
-            tickFormatter={(v) => `${v}bln`} tick={{ fontSize: 10 }} />
-          <YAxis type="category" dataKey="name" hide />
-          <Tooltip content={({ active, payload }) =>
-            active && payload?.length ? (
-              <div className="bg-white border border-gray-200 rounded-xl px-3 py-2 shadow text-xs">
-                <p className="font-semibold">{profile?.dana_darurat || 'Belum ada'}</p>
-                <p className="text-gray-500">≈ {payload[0].value} bulan</p>
-              </div>
-            ) : null
-          } />
-          <Bar dataKey="nilai" fill={color} radius={[0, 6, 6, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-      <p className="text-[11px] text-gray-400 text-center mt-1">
-        Target minimum: 3 bulan · Kondisi: {profile?.dana_darurat || 'Belum ada'}
+    <div className="flex flex-col items-center justify-center h-full">
+      <svg viewBox="0 0 200 110" width="100%" style={{ maxHeight: 160 }}>
+        {/* Track abu-abu */}
+        <path d={arcPath(180, 0, r, r - 16)} fill="#F3F4F6" />
+        {/* Zona merah 0-3 */}
+        <path d={arcPath(180, valToDeg(3), r, r - 16)} fill="#FCA5A5" />
+        {/* Zona kuning 3-6 */}
+        <path d={arcPath(valToDeg(3), valToDeg(6), r, r - 16)} fill="#FDE68A" />
+        {/* Zona hijau 6-10 */}
+        <path d={arcPath(valToDeg(6), 0, r, r - 16)} fill="#A7F3D0" />
+        {/* Arc aktif (nilai saat ini) */}
+        {nilai > 0 && (
+          <path d={arcPath(180, jarum, r, r - 16)} fill={warna} opacity={0.85} />
+        )}
+        {/* Jarum */}
+        <line x1={cx} y1={cy} x2={jarumX} y2={jarumY}
+          stroke="#374151" strokeWidth={2.5} strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r={5} fill="#374151" />
+        {/* Label bulan */}
+        <text x={cx} y={cy + 18} textAnchor="middle" fill={warna} fontSize={20} fontWeight="800">{nilai}</text>
+        <text x={cx} y={cy + 30} textAnchor="middle" fill="#6B7280" fontSize={8}>bulan</text>
+        {/* Tick labels */}
+        {[0, 3, 6, 10].map((v) => {
+          const deg = valToDeg(v)
+          const tx  = cx + (r + 8) * Math.cos(toRad(deg))
+          const ty  = cy + (r + 8) * Math.sin(toRad(deg))
+          return <text key={v} x={tx} y={ty} textAnchor="middle" fill="#9CA3AF" fontSize={7}>{v}</text>
+        })}
+      </svg>
+      <p className="text-[10px] text-gray-400 text-center -mt-1">
+        Estimasi awal · Akurasi meningkat setelah mengisi anggaran bulanan
       </p>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 4 — BPJS BREAKDOWN
+// GRAFIK 4 — ALOKASI vs STANDAR IDEAL 50/30/20
 // ─────────────────────────────────────────────────────
-function Chart4BPJS({ calc }) {
-  const data = [
-    { name: 'BPJS Kes (Karyawan)',   value: Math.round(calc.bpjsKesKaryawan),   color: '#FDA4AF' },
-    { name: 'BPJS Kes (Perusahaan)', value: Math.round(calc.bpjsKesPerusahaan), color: '#FB7185' },
-    { name: 'BPJS TK (Karyawan)',    value: Math.round(calc.bpjsTKKaryawan),    color: '#93C5FD' },
-    { name: 'BPJS TK (Perusahaan)',  value: Math.round(calc.bpjsTKJHTPerusahaan + calc.bpjsTKJPPerusahaan + calc.bpjsTKJKM), color: '#3B82F6' },
-  ].filter(d => d.value > 0)
+function Chart4AlokasiIdeal({ calc }) {
+  const { totalPendapatan, totalPotonganKaryawan, estimasiTabungan } = calc
+  const tp = totalPendapatan || 1
 
-  const renderLabel = ({ cx, cy, midAngle, outerRadius, value }) => {
-    const RADIAN = Math.PI / 180
-    const r = outerRadius + 18
-    const x = cx + r * Math.cos(-midAngle * RADIAN)
-    const y = cy + r * Math.sin(-midAngle * RADIAN)
-    return <text x={x} y={y} textAnchor={x > cx ? 'start' : 'end'} fill="#9CA3AF" fontSize={10}>{`${(value / 1000).toFixed(0)}rb`}</text>
+  const aktualKebutuhan  = (totalPotonganKaryawan / tp) * 100
+  const aktualTabungan   = (estimasiTabungan / tp) * 100
+  const aktualGayaHidup  = Math.max(0, 100 - aktualKebutuhan - aktualTabungan)
+
+  const data = [
+    { kategori: 'Kebutuhan Pokok', aktual: Math.round(aktualKebutuhan),  ideal: 50,  over: aktualKebutuhan > 50 },
+    { kategori: 'Tabungan & Inv.', aktual: Math.round(aktualTabungan),   ideal: 20,  over: aktualTabungan < 20 },
+    { kategori: 'Gaya Hidup',      aktual: Math.round(aktualGayaHidup),  ideal: 30,  over: aktualGayaHidup > 30 },
+  ]
+
+  const CustomBar = (props) => {
+    const { x, y, width, height, over } = props
+    return <rect x={x} y={y} width={width} height={height} fill={over ? '#F97316' : '#6366F1'} rx={4} />
   }
 
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <PieChart>
-        <Pie data={data} cx="50%" cy="45%" innerRadius="35%" outerRadius="60%"
-          dataKey="value" labelLine={false} label={renderLabel}>
-          {data.map((d) => <Cell key={d.name} fill={d.color} />)}
-        </Pie>
-        <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-        <Tooltip content={<RupiahTooltip />} />
-      </PieChart>
-    </ResponsiveContainer>
+  const renderCustomLabel = ({ x, y, width, value }) => (
+    <text x={x + width / 2} y={y - 4} textAnchor="middle" fill="#374151" fontSize={10} fontWeight="600">{value}%</text>
   )
-}
 
-// ─────────────────────────────────────────────────────
-// GRAFIK 5 — PPH 21
-// ─────────────────────────────────────────────────────
-function Chart5Pajak({ calc }) {
-  const data = [
-    { name: 'Penghasilan', nilai: Math.round(calc.totalPendapatan) },
-    { name: 'Est. PPh/bln', nilai: Math.round(calc.pphBulanan) },
-  ]
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-        <YAxis tickFormatter={(v) => `${(v / 1e6).toFixed(1)}jt`} tick={{ fontSize: 10 }} />
-        <Tooltip content={<RupiahTooltip />} />
-        <Bar dataKey="nilai" name="Nominal" radius={[6, 6, 0, 0]}>
-          <Cell fill="#818CF8" />
-          <Cell fill="#F472B6" />
-        </Bar>
+      <BarChart data={data} margin={{ top: 20, right: 12, left: 0, bottom: 4 }} barGap={4}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+        <XAxis dataKey="kategori" tick={{ fontSize: 10 }} />
+        <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10 }} width={32} />
+        <Tooltip formatter={(v, name) => [`${v}%`, name === 'aktual' ? 'Aktual Anda' : 'Standar Ideal']}
+          labelFormatter={(l) => l} />
+        <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8}
+          formatter={(value) => value === 'aktual' ? 'Aktual Anda' : 'Standar Ideal (50/30/20)'} />
+        <Bar dataKey="aktual" name="aktual" shape={<CustomBar />} label={renderCustomLabel} />
+        <Bar dataKey="ideal"  name="ideal"  fill="#D1D5DB" radius={[4, 4, 0, 0]} opacity={0.6} />
       </BarChart>
     </ResponsiveContainer>
   )
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 6 — FINANCIAL HEALTH RADAR
+// GRAFIK 5 — DISTRIBUSI KONDISI KEUANGAN (RADAR + BADGE)
 // ─────────────────────────────────────────────────────
-function Chart6Health({ calc }) {
+function Chart5KondisiKeuangan({ calc }) {
   const data = [
     { subject: 'Likuiditas', A: Math.round(calc.healthScores.likuiditas) },
     { subject: 'Proteksi',   A: Math.round(calc.healthScores.proteksi) },
@@ -291,43 +355,104 @@ function Chart6Health({ calc }) {
     { subject: 'Tabungan',   A: Math.round(calc.healthScores.tabungan) },
     { subject: 'Investasi',  A: Math.round(calc.healthScores.investasi) },
   ]
+  const skor  = Math.round(calc.healthTotal)
+  const badgeColor = skor < 40 ? '#EF4444' : skor <= 70 ? '#EAB308' : '#22C55E'
+
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <RadarChart data={data} margin={{ top: 8, right: 28, bottom: 8, left: 28 }}>
-        <PolarGrid stroke="#E5E7EB" />
-        <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#6B7280' }} />
-        <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-        <Radar dataKey="A" name="Skor" stroke="#6366F1" fill="#6366F1" fillOpacity={0.3} />
-        <Tooltip formatter={(v) => [`${v} / 100`, 'Skor']} />
-      </RadarChart>
-    </ResponsiveContainer>
+    <div className="relative h-full">
+      {/* Badge skor pojok kanan atas */}
+      <div className="absolute top-0 right-2 z-10 flex flex-col items-center">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shadow"
+          style={{ background: badgeColor }}>{skor}</div>
+        <span className="text-[9px] text-gray-400 mt-0.5">Skor</span>
+      </div>
+      <ResponsiveContainer width="100%" height="100%">
+        <RadarChart data={data} margin={{ top: 8, right: 28, bottom: 8, left: 28 }}>
+          <PolarGrid stroke="#E5E7EB" />
+          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#6B7280' }} />
+          <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+          <Radar dataKey="A" name="Skor" stroke="#6366F1" fill="#6366F1" fillOpacity={0.3} />
+          <Tooltip formatter={(v) => [`${v} / 100`, 'Skor']} />
+        </RadarChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
 // ─────────────────────────────────────────────────────
-// GRAFIK 7 — PROYEKSI TABUNGAN 12 BULAN
+// GRAFIK 6 — CASHFLOW BULANAN (ComposedChart)
 // ─────────────────────────────────────────────────────
-function Chart7Proyeksi({ calc }) {
-  const data = Array.from({ length: 12 }, (_, i) => ({
-    bulan: `Bln ${i + 1}`,
-    tabungan: Math.round(calc.estimasiTabungan * (i + 1)),
+function Chart6Cashflow({ calc }) {
+  const pemasukan    = calc.totalPendapatan
+  const pengeluaran  = calc.totalPotonganKaryawan + calc.estimasiTabungan
+  const surplus      = pemasukan - pengeluaran
+  const surplusColor = surplus >= 0 ? '#22C55E' : '#EF4444'
+
+  const data = Array.from({ length: 6 }, (_, i) => ({
+    bulan:       `Bln ${i + 1}`,
+    Pemasukan:   Math.round(pemasukan),
+    Pengeluaran: Math.round(pengeluaran),
+    Surplus:     Math.round(surplus),
   }))
+
+  return (
+    <div className="flex flex-col h-full">
+      <ResponsiveContainer width="100%" height="88%">
+        <ComposedChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
+          <XAxis dataKey="bulan" tick={{ fontSize: 10 }} />
+          <YAxis tickFormatter={(v) => `${(v / 1e6).toFixed(1)}jt`} tick={{ fontSize: 10 }} width={36} />
+          <Tooltip content={<RupiahTooltip />} />
+          <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
+          <ReferenceLine y={0} stroke="#E5E7EB" />
+          <Bar dataKey="Pemasukan"   fill="#93C5FD" radius={[4, 4, 0, 0]} name="Pemasukan" />
+          <Bar dataKey="Pengeluaran" fill="#FCA5A5" radius={[4, 4, 0, 0]} name="Pengeluaran" />
+          <Line dataKey="Surplus" type="monotone" stroke={surplusColor}
+            strokeWidth={2} dot={{ fill: surplusColor, r: 3 }} name="Surplus" />
+        </ComposedChart>
+      </ResponsiveContainer>
+      <p className="text-[10px] text-gray-400 text-center">
+        Proyeksi penghasilan & potongan tetap · Diperbarui otomatis setelah input transaksi
+      </p>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────
+// GRAFIK 7 — PROYEKSI PERTUMBUHAN TABUNGAN (Multi-line)
+// ─────────────────────────────────────────────────────
+const WARNA_INVESTASI = ['#8B5CF6', '#06B6D4', '#F59E0B', '#10B981', '#EF4444', '#EC4899', '#6366F1']
+
+function Chart7Proyeksi({ calc, profile }) {
+  const instrumen = (profile?.investasi_aktif || [])
+    .filter(v => v !== 'Belum berinvestasi')
+    .slice(0, 4)
+
+  const data = Array.from({ length: 12 }, (_, i) => {
+    const bln    = i + 1
+    const row    = { bulan: `Bln ${bln}`, 'Total Tabungan': Math.round(calc.estimasiTabungan * bln) }
+    instrumen.forEach((ins) => {
+      row[ins] = Math.round(calc.estimasiTabungan * 0.2 * bln)
+    })
+    return row
+  })
+
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-        <defs>
-          <linearGradient id="gradTabungan" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%"  stopColor="#6366F1" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="#6366F1" stopOpacity={0.02} />
-          </linearGradient>
-        </defs>
+      <LineChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
         <XAxis dataKey="bulan" tick={{ fontSize: 10 }} />
-        <YAxis tickFormatter={(v) => `${(v / 1e6).toFixed(1)}jt`} tick={{ fontSize: 10 }} />
+        <YAxis tickFormatter={(v) => `${(v / 1e6).toFixed(1)}jt`} tick={{ fontSize: 10 }} width={36} />
         <Tooltip content={<RupiahTooltip />} />
-        <Area dataKey="tabungan" name="Akumulasi Tabungan" type="monotone"
-          stroke="#6366F1" strokeWidth={2} fill="url(#gradTabungan)" />
-      </AreaChart>
+        <Legend wrapperStyle={{ fontSize: 10 }} iconSize={8} />
+        <Line dataKey="Total Tabungan" type="monotone" stroke="#6366F1"
+          strokeWidth={2.5} dot={false} />
+        {instrumen.map((ins, i) => (
+          <Line key={ins} dataKey={ins} type="monotone"
+            stroke={WARNA_INVESTASI[i + 1] || '#9CA3AF'}
+            strokeWidth={1.5} strokeDasharray="4 2" dot={false} />
+        ))}
+      </LineChart>
     </ResponsiveContainer>
   )
 }
@@ -338,11 +463,11 @@ function Chart7Proyeksi({ calc }) {
 const CHART_META = [
   'Alokasi Gaji Bulanan',
   'Debt-to-Income Ratio',
-  'Kecukupan Dana Darurat',
-  'BPJS Breakdown',
-  'Estimasi PPh 21 Bulanan',
-  'Financial Health Score',
-  'Proyeksi Tabungan 12 Bulan',
+  'Ketahanan Dana Darurat',
+  'Alokasi vs Standar Ideal',
+  'Distribusi Kondisi Keuangan',
+  'Cashflow Bulanan',
+  'Proyeksi Pertumbuhan Tabungan',
 ]
 
 function ChartCarousel({ calc, profile }) {
@@ -363,13 +488,13 @@ function ChartCarousel({ calc, profile }) {
   }
 
   const charts = [
-    <Chart1Alokasi    key={0} calc={calc} />,
-    <Chart2Debt       key={1} calc={calc} />,
-    <Chart3DanaDarurat key={2} profile={profile} />,
-    <Chart4BPJS       key={3} calc={calc} />,
-    <Chart5Pajak      key={4} calc={calc} />,
-    <Chart6Health     key={5} calc={calc} />,
-    <Chart7Proyeksi   key={6} calc={calc} />,
+    <Chart1Alokasi         key={0} calc={calc} />,
+    <Chart2Debt            key={1} calc={calc} />,
+    <Chart3Speedometer     key={2} profile={profile} />,
+    <Chart4AlokasiIdeal    key={3} calc={calc} />,
+    <Chart5KondisiKeuangan key={4} calc={calc} />,
+    <Chart6Cashflow        key={5} calc={calc} />,
+    <Chart7Proyeksi        key={6} calc={calc} profile={profile} />,
   ]
 
   return (
@@ -529,34 +654,82 @@ function TabBPJS({ calc }) {
 }
 
 // ─────────────────────────────────────────────────────
-// TAB 3 — PAJAK
+// TAB 3 — PAJAK (3 kartu besar + breakdown)
 // ─────────────────────────────────────────────────────
-function TabPajak({ calc, profile }) {
+function TabPajak({ calc }) {
   const statusLabel = calc.statusPajak === 'K'
-    ? `K/${calc.tanggungan} (Kawin, ${calc.tanggungan} tanggungan)`
+    ? `K/${calc.tanggungan}`
     : `TK/${calc.tanggungan}`
-  const rows = [
-    ['Status PTKP',                  statusLabel],
-    ['Nilai PTKP Setahun',           idr(calc.ptkp)],
-    ['Penghasilan Bruto Setahun',    idr(calc.penghasilanBruto)],
-    ['Penghasilan Neto Setahun',     idr(calc.penghasilanNeto)],
-    ['PKP (Penghasilan Kena Pajak)', idr(calc.pkp)],
-    ['Est. PPh 21 Setahun',          idr(calc.pphTahunan)],
-    ['Est. PPh 21 Per Bulan',        idr(calc.pphBulanan)],
-    ['Tarif Efektif',                pct(calc.efektifPajak)],
-  ]
+
+  // Breakdown PTKP: Diri sendiri + tambahan kawin + tanggungan
+  const ptkpDiri      = 54_000_000
+  const ptkpKawin     = calc.statusPajak === 'K' ? 4_500_000 : 0
+  const ptkpTanggunan = calc.tanggungan * 4_500_000
+
   return (
-    <div>
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
-        {rows.map(([label, value], i) => (
-          <div key={i} className={`flex justify-between items-center px-4 py-2.5 text-xs ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${i < rows.length - 1 ? 'border-b border-gray-100' : ''}`}>
+    <div className="space-y-4">
+      {/* 3 Kartu ringkasan */}
+      <div className="grid grid-cols-3 gap-3">
+
+        {/* Kartu 1 — PPh Bulanan (pink) */}
+        <div className="rounded-2xl p-3 text-center flex flex-col items-center justify-center gap-1"
+          style={{ background: 'linear-gradient(135deg, #FDF2F8 0%, #FCE7F3 100%)', border: '1px solid #FBCFE8' }}>
+          <span className="text-[10px] font-semibold text-pink-600 leading-tight">PPh 21<br/>per Bulan</span>
+          <span className="text-base font-bold text-pink-700 font-mono leading-tight">
+            {calc.pphBulanan < 1000
+              ? 'Rp 0'
+              : `${(calc.pphBulanan / 1e6).toFixed(2)}jt`}
+          </span>
+          <span className="text-[9px] text-pink-400">dipotong pemberi kerja</span>
+        </div>
+
+        {/* Kartu 2 — Tarif Efektif (oranye) */}
+        <div className="rounded-2xl p-3 text-center flex flex-col items-center justify-center gap-1"
+          style={{ background: 'linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)', border: '1px solid #FDE68A' }}>
+          <span className="text-[10px] font-semibold text-amber-600 leading-tight">Tarif<br/>Efektif</span>
+          <span className="text-base font-bold text-amber-700 font-mono leading-tight">
+            {pct(calc.efektifPajak)}
+          </span>
+          <span className="text-[9px] text-amber-400">dari penghasilan bruto</span>
+        </div>
+
+        {/* Kartu 3 — PTKP (hijau) */}
+        <div className="rounded-2xl p-3 text-center flex flex-col items-center justify-center gap-1"
+          style={{ background: 'linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%)', border: '1px solid #BBF7D0' }}>
+          <span className="text-[10px] font-semibold text-green-700 leading-tight">Status<br/>PTKP</span>
+          <span className="text-base font-bold text-green-700 font-mono leading-tight">{statusLabel}</span>
+          <span className="text-[9px] text-green-500">
+            {(calc.ptkp / 1e6).toFixed(1)}jt / thn
+          </span>
+        </div>
+      </div>
+
+      {/* Breakdown perhitungan */}
+      <div className="rounded-2xl border border-gray-100 overflow-hidden bg-white">
+        <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+          <span className="text-xs font-semibold text-gray-600">Rincian Perhitungan PPh 21</span>
+        </div>
+        {[
+          ['Penghasilan Bruto Setahun',     idr(calc.penghasilanBruto), '#374151'],
+          ['Biaya Jabatan (maks Rp 6 jt)',  idr(-(calc.penghasilanBruto - calc.penghasilanNeto - calc.bpjsTKJPKaryawan * 12)), '#EF4444'],
+          ['Iuran JP Setahun (1%)',         idr(-calc.bpjsTKJPKaryawan * 12), '#EF4444'],
+          ['Penghasilan Neto Setahun',      idr(calc.penghasilanNeto),  '#374151'],
+          ['PTKP — Diri Sendiri',           idr(-ptkpDiri), '#EF4444'],
+          ...(ptkpKawin > 0 ? [['PTKP — Tambahan Kawin', idr(-ptkpKawin), '#EF4444']] : []),
+          ...(ptkpTanggunan > 0 ? [['PTKP — Tanggungan (' + calc.tanggungan + ' org)', idr(-ptkpTanggunan), '#EF4444']] : []),
+          ['PKP (Penghasilan Kena Pajak)',  idr(calc.pkp), '#6366F1'],
+          ['PPh 21 Setahun',               idr(calc.pphTahunan), '#EC4899'],
+        ].map(([label, value, color], i, arr) => (
+          <div key={i} className={`flex justify-between items-center px-4 py-2 text-xs ${i < arr.length - 1 ? 'border-b border-gray-50' : ''} ${i === arr.length - 1 ? 'bg-pink-50 font-semibold' : ''}`}>
             <span className="text-gray-500">{label}</span>
-            <span className="font-semibold text-gray-800 font-mono">{value}</span>
+            <span className="font-mono font-semibold" style={{ color }}>{value}</span>
           </div>
         ))}
       </div>
-      <div className="mt-3 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2.5 text-[11px] text-amber-700">
-        💡 Estimasi berdasarkan penghasilan tetap. PPh aktual dihitung ulang tiap bulan setelah input insentif.
+
+      {/* Catatan */}
+      <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-2.5 text-[11px] text-amber-700">
+        💡 Estimasi dari penghasilan tetap saja. PPh aktual dihitung ulang setiap bulan setelah kamu input insentif (bonus, lembur, komisi).
       </div>
     </div>
   )
@@ -775,10 +948,10 @@ function Dashboard() {
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Wallet size={20} className="text-indigo-500" />
-            <span className="font-bold text-gray-800 text-sm">Niswar Finance AI</span>
+            <span className="font-bold text-gray-800 text-sm">Smart Finance AI</span>
           </div>
           <div className="flex items-center">
-            <Link to="/settings/profil"
+            <Link to="/settings"
               className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors">
               <Settings size={14} /><span className="hidden sm:inline ml-0.5">Pengaturan</span>
             </Link>
