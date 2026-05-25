@@ -623,7 +623,7 @@ const CHART_META = [
   'Alokasi Gaji Bulanan',
   'Debt-to-Income Ratio',
   'Ketahanan Dana Darurat',
-  'Alokasi vs Standar Ideal',
+  'Rapor Alokasi Keuanganmu',
   'Distribusi Kondisi Keuangan',
   'Cashflow Bulanan',
   'Proyeksi Pertumbuhan Tabungan',
