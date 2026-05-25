@@ -1243,6 +1243,32 @@ function Dashboard() {
           </div>
         )}
 
+        {/* Banner CTA — Anggaran Bulanan */}
+        {!loading && (
+          <div
+            className="mb-4 rounded-xl flex items-center justify-between gap-3"
+            style={{
+              background: 'linear-gradient(135deg, #ede9fe 0%, #dbeafe 100%)',
+              padding: '16px 20px',
+            }}
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-indigo-800">📋 Anggaran Bulanan</p>
+              <p className="text-xs text-indigo-600 mt-0.5">
+                Kelola pos pengeluaran dan pantau realisasi anggaran
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/anggaran')}
+              className="shrink-0 px-4 py-1.5 rounded-lg text-sm font-bold text-white cursor-pointer hover:opacity-90 transition-opacity"
+              style={{ background: '#6366f1' }}
+            >
+              Buka →
+            </button>
+          </div>
+        )}
+
         {/* Carousel */}
         {loading
           ? <CarouselSkeleton />
