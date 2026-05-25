@@ -173,7 +173,7 @@ function Chart1Alokasi({ calc }) {
   }
 
   return (
-    <div className="flex flex-col h-full" style={{ minHeight: 220 }}>
+    <div className="flex flex-col h-full">
       {/* Donut — mengisi sisa tinggi */}
       <div style={{ flex: 1, minHeight: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
@@ -595,7 +595,7 @@ function Chart6Cashflow({ calc }) {
       >
         <div style={{ width: Math.max(chartWidth, 100) + 'px', minWidth: '100%' }}>
           <ComposedChart
-            width={chartWidth} height={160} data={data}
+            width={chartWidth} height={130} data={data}
             margin={{ top: 4, right: 4, left: 0, bottom: 2 }} barGap={4}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
@@ -677,10 +677,9 @@ const CHART_META = [
 ]
 
 function ChartCarousel({ calc, profile }) {
-  const [idx, setIdx]               = useState(0)
-  const [showControls, setShowControls] = useState(false)
-  const touchStartX                 = useRef(null)
-  const total                       = 7
+  const [idx, setIdx] = useState(0)
+  const touchStartX   = useRef(null)
+  const total         = 7
 
   const prev = () => setIdx((i) => Math.max(0, i - 1))
   const next = () => setIdx((i) => Math.min(total - 1, i + 1))
@@ -706,123 +705,107 @@ function ChartCarousel({ calc, profile }) {
 
   return (
     <div
-      className="relative bg-white shadow-sm border-y border-gray-100"
-      style={{ width: '100vw', marginLeft: 'calc(-50vw + 50%)' }}
-      onMouseEnter={() => setShowControls(true)}
-      onMouseLeave={() => setShowControls(false)}
+      className="relative"
+      style={{
+        overflow: 'hidden',
+        width: '100%',
+        maxWidth: '100%',
+        height: 320,
+        background: 'white',
+        borderRadius: 12,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
     >
-
       {/* Label + nomor */}
-      <div className="flex items-center justify-between px-5 pt-4 pb-1 max-w-5xl mx-auto">
+      <div
+        className="flex items-center justify-between px-5 pt-4 pb-1"
+        style={{ flexShrink: 0 }}
+      >
         <span className="text-sm font-semibold text-gray-700">{CHART_META[idx]}</span>
         <span className="text-xs text-gray-400 tabular-nums">{idx + 1} / {total}</span>
       </div>
 
-      {/* Area slide */}
-      <div className="overflow-hidden" style={{ height: 'clamp(220px, 38vw, 272px)' }}
-        onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
-        <div className="flex h-full"
+      {/* Area slide — mengisi sisa tinggi secara otomatis */}
+      <div
+        style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}
+        onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+      >
+        <div
+          className="flex h-full"
           style={{
             width: `${total * 100}%`,
             transform: `translateX(-${idx * (100 / total)}%)`,
             transition: 'transform 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-          }}>
+          }}
+        >
           {charts.map((chart, i) => (
-            <div key={i} style={{ width: `${100 / total}%`, flexShrink: 0 }} className="px-5 pb-2">
+            <div
+              key={i}
+              style={{
+                width: `${100 / total}%`,
+                flexShrink: 0,
+                height: '100%',
+                overflow: 'hidden',
+                padding: 16,
+                boxSizing: 'border-box',
+              }}
+            >
               {chart}
             </div>
           ))}
         </div>
       </div>
 
-      {/* Tombol panah — desktop only, muncul via showControls state */}
+      {/* Tombol navigasi — selalu terlihat di desktop (hidden di mobile) */}
       <button
         onClick={prev}
         aria-label="Grafik sebelumnya"
-        className="hidden md:flex absolute top-1/2 -translate-y-1/2 items-center justify-center rounded-full z-20 hover:scale-[1.08]"
-        style={{
-          left: 12,
-          width: 44, height: 44,
-          background: 'rgba(255,255,255,0.9)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          border: 'none',
-          cursor: idx === 0 ? 'default' : 'pointer',
-          opacity: showControls ? (idx === 0 ? 0.3 : 1) : 0,
-          pointerEvents: showControls && idx > 0 ? 'auto' : 'none',
-          transition: 'opacity 0.2s ease, transform 0.2s ease',
-        }}
-      >
-        <ChevronLeft size={20} color="#374151" />
-      </button>
-      <button
-        onClick={next}
-        aria-label="Grafik berikutnya"
-        className="hidden md:flex absolute top-1/2 -translate-y-1/2 items-center justify-center rounded-full z-20 hover:scale-[1.08]"
-        style={{
-          right: 12,
-          width: 44, height: 44,
-          background: 'rgba(255,255,255,0.9)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          border: 'none',
-          cursor: idx === total - 1 ? 'default' : 'pointer',
-          opacity: showControls ? (idx === total - 1 ? 0.3 : 1) : 0,
-          pointerEvents: showControls && idx < total - 1 ? 'auto' : 'none',
-          transition: 'opacity 0.2s ease, transform 0.2s ease',
-        }}
-      >
-        <ChevronRight size={20} color="#374151" />
-      </button>
-
-      {/* Tombol navigasi kiri */}
-      <button
-        onClick={() => setIdx(prev => Math.max(0, prev - 1))}
+        className="hidden md:flex"
         style={{
           position: 'absolute',
-          left: '8px',
-          top: '50%',
+          left: 8, top: '50%',
           transform: 'translateY(-50%)',
-          zIndex: 20,
-          width: '40px',
-          height: '40px',
+          zIndex: 30,
+          width: 40, height: 40,
           borderRadius: '50%',
           background: 'rgba(255,255,255,0.85)',
           boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
           border: 'none',
-          cursor: 'pointer',
-          display: idx === 0 ? 'none' : 'flex',
+          cursor: idx === 0 ? 'default' : 'pointer',
           alignItems: 'center',
           justifyContent: 'center',
+          display: idx === 0 ? 'none' : undefined,
         }}
       >
         <ChevronLeft size={20} />
       </button>
-
-      {/* Tombol navigasi kanan */}
       <button
-        onClick={() => setIdx(prev => Math.min(6, prev + 1))}
+        onClick={next}
+        aria-label="Grafik berikutnya"
+        className="hidden md:flex"
         style={{
           position: 'absolute',
-          right: '8px',
-          top: '50%',
+          right: 8, top: '50%',
           transform: 'translateY(-50%)',
-          zIndex: 20,
-          width: '40px',
-          height: '40px',
+          zIndex: 30,
+          width: 40, height: 40,
           borderRadius: '50%',
           background: 'rgba(255,255,255,0.85)',
           boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
           border: 'none',
-          cursor: 'pointer',
-          display: idx === 6 ? 'none' : 'flex',
+          cursor: idx === total - 1 ? 'default' : 'pointer',
           alignItems: 'center',
           justifyContent: 'center',
+          display: idx === total - 1 ? 'none' : undefined,
         }}
       >
         <ChevronRight size={20} />
       </button>
 
       {/* Dot indicator */}
-      <div className="flex items-center justify-center gap-1.5 py-3">
+      <div className="flex items-center justify-center gap-1.5 py-2" style={{ flexShrink: 0 }}>
         {Array.from({ length: total }, (_, i) => (
           <button key={i} onClick={() => setIdx(i)} aria-label={`Grafik ${i + 1}`}
             className="rounded-full cursor-pointer transition-all duration-300"
