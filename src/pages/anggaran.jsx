@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutGrid, Table, Pencil, Plus, ChevronRight,
@@ -53,6 +53,10 @@ function Anggaran() {
   const [newSubName,     setNewSubName]     = useState('')
   const [newSubBudget,   setNewSubBudget]   = useState(0)
 
+  // Guard: mencegah initTemplate dijalankan dua kali
+  // (React Strict Mode memanggil useEffect dua kali di development)
+  const isInitializing = useRef(false)
+
   // ── Fetch accounts ─────────────────────────────────
   const fetchAccounts = useCallback(async (userId) => {
     const { data } = await supabase
@@ -82,6 +86,10 @@ function Anggaran() {
 
   // ── Init template (Chart of Accounts otomatis) ─────
   async function initTemplate(prof, userId) {
+    // Guard: jika sudah berjalan (misal karena React Strict Mode), langsung keluar
+    if (isInitializing.current) return
+    isInitializing.current = true
+
     const templates = generateAccountTemplates(prof)
     const nameToId  = new Map()
 
@@ -141,6 +149,8 @@ function Anggaran() {
     }
 
     await fetchAccounts(userId)
+    // Selesai — reset flag agar bisa diinisialisasi ulang jika diperlukan
+    isInitializing.current = false
   }
 
   // ── useEffect: init saat mount ─────────────────────
@@ -163,8 +173,8 @@ function Anggaran() {
           fetchTransactions(sess.user.id),
         ])
 
-        // Jika belum ada akun sama sekali, inisialisasi template
-        if (accs.length === 0 && prof) {
+        // Jika belum ada akun sama sekali DAN tidak sedang diinisialisasi
+        if (accs.length === 0 && prof && !isInitializing.current) {
           await initTemplate(prof, sess.user.id)
         }
       } catch (err) {
