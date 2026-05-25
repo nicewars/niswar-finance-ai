@@ -1230,6 +1230,53 @@ function Dashboard() {
           {user && !loading && <p className="text-xs text-gray-400 mt-0.5">{user.email}</p>}
         </div>
 
+        {/* ── Banner AI Perencanaan — onboarding belum selesai ── */}
+        {!loading && profile && !profile.onboarding_completed && (
+          <div className="mb-5 rounded-2xl overflow-hidden border border-amber-200"
+            style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%)' }}>
+            <div className="flex items-start justify-between gap-3 p-5">
+              <div className="min-w-0">
+                <p className="text-base font-bold text-amber-900">
+                  ✨ Susun anggaran pertamamu bersama AI!
+                </p>
+                <p className="text-sm text-amber-700 mt-1 leading-relaxed">
+                  AI akan membantumu membuat rencana keuangan yang realistis
+                  melalui percakapan santai — cukup 10 menit.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/perencanaan-keuangan')}
+                className="shrink-0 px-4 py-2 rounded-xl text-sm font-bold text-white cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
+                style={{ background: '#d97706' }}
+              >
+                Mulai Sekarang →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Banner AI Perencanaan — onboarding sudah selesai ── */}
+        {!loading && profile && profile.onboarding_completed && (
+          <div className="mb-4 rounded-xl flex items-center justify-between gap-3 px-4 py-3"
+            style={{
+              background: 'linear-gradient(135deg, #ede9fe 0%, #dbeafe 100%)',
+              border: '1px solid #c7d2fe',
+            }}>
+            <p className="text-sm font-semibold text-indigo-800">
+              📋 Perbarui Anggaran Bulan Ini
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/perencanaan-keuangan')}
+              className="shrink-0 px-3 py-1 rounded-lg text-xs font-bold text-white cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
+              style={{ background: '#6366f1' }}
+            >
+              Rencanakan dengan AI →
+            </button>
+          </div>
+        )}
+
         {/* Banner profil belum lengkap */}
         {!loading && profile && !profile.gaji_pokok && (
           <div className="mb-5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">

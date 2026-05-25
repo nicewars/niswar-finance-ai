@@ -4,6 +4,7 @@ import RegisterType from './pages/register-type'
 import RegisterIndividu from './pages/register-individu'
 import Dashboard from './pages/dashboard'
 import Anggaran from './pages/anggaran'
+import PerencanaanKeuangan from './pages/perencanaan-keuangan'
 import Settings from './pages/settings'
 import SettingsProfil from './pages/settings-profil'
 import './App.css'
@@ -18,6 +19,7 @@ function App() {
         <Route path="/register/individu" element={<RegisterIndividu />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/anggaran" element={<Anggaran />} />
+        <Route path="/perencanaan-keuangan" element={<PerencanaanKeuangan />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/profil" element={<SettingsProfil />} />
       </Routes>
