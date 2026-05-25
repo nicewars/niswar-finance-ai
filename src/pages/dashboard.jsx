@@ -250,29 +250,17 @@ function Chart3Speedometer({ profile }) {
   const [isEditing, setIsEditing] = useState(false)
   const [tempMax, setTempMax]     = useState(maxBulan)
 
-  const nilai  = DANA_DARURAT_BULAN[profile?.dana_darurat] ?? 0
-  const maxVal = maxBulan
-  const warna  = nilai < 3 ? '#EF4444' : nilai < 6 ? '#EAB308' : '#22C55E'
+  const nilai = DANA_DARURAT_BULAN[profile?.dana_darurat] ?? 0
+  const warna = nilai < 3 ? '#ef4444' : nilai < 6 ? '#f59e0b' : '#22c55e'
 
-  const cx = 100, cy = 90, r = 70
-  const toRad = (deg) => (deg * Math.PI) / 180
-
-  const arcPath = (startDeg, endDeg, radius, innerRadius) => {
-    const s  = { x: cx + radius * Math.cos(toRad(startDeg)), y: cy + radius * Math.sin(toRad(startDeg)) }
-    const e  = { x: cx + radius * Math.cos(toRad(endDeg)),   y: cy + radius * Math.sin(toRad(endDeg)) }
-    const si = { x: cx + innerRadius * Math.cos(toRad(startDeg)), y: cy + innerRadius * Math.sin(toRad(startDeg)) }
-    const ei = { x: cx + innerRadius * Math.cos(toRad(endDeg)),   y: cy + innerRadius * Math.sin(toRad(endDeg)) }
-    const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0
-    return `M${s.x},${s.y} A${radius},${radius} 0 ${large},1 ${e.x},${e.y} L${ei.x},${ei.y} A${innerRadius},${innerRadius} 0 ${large},0 ${si.x},${si.y} Z`
-  }
-
-  // Skala menyesuaikan maxVal; zona merah/kuning/hijau tetap absolut (3 & 6 bulan)
-  const valToDeg = (v) => 180 - (Math.min(v, maxVal) / maxVal) * 180
-  const zone3    = Math.min(3, maxVal)
-  const zone6    = Math.min(6, maxVal)
-  const jarum    = valToDeg(nilai)
-  const jarumX   = cx + (r - 8) * Math.cos(toRad(jarum))
-  const jarumY   = cy + (r - 8) * Math.sin(toRad(jarum))
+  // Hitung koordinat ujung arc nilai
+  // Arc latar: M 20 110 → M 180 110 (setengah lingkaran atas, r=80, center=100,110)
+  // Untuk fraksi f: titik ujung = (100 - 80*cos(f*π), 110 - 80*sin(f*π))
+  const frac     = maxBulan > 0 ? Math.min(nilai, maxBulan) / maxBulan : 0
+  const angle    = frac * Math.PI
+  const endX     = +(100 - 80 * Math.cos(angle)).toFixed(3)
+  const endY     = +(110 - 80 * Math.sin(angle)).toFixed(3)
+  const largeArc = frac > 0.5 ? 1 : 0
 
   function saveMax(val) {
     const clamped = Math.max(6, Math.min(120, parseInt(val, 10) || 24))
@@ -283,38 +271,38 @@ function Chart3Speedometer({ profile }) {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center h-full">
-      <svg viewBox="0 0 200 110" width="100%" style={{ maxHeight: 148 }}>
-        {/* Track abu-abu */}
-        <path d={arcPath(180, 0, r, r - 16)} fill="#F3F4F6" />
-        {/* Zona merah 0–3 bulan */}
-        {zone3 > 0 && <path d={arcPath(180, valToDeg(zone3), r, r - 16)} fill="#FCA5A5" />}
-        {/* Zona kuning 3–6 bulan */}
-        {zone6 > zone3 && <path d={arcPath(valToDeg(zone3), valToDeg(zone6), r, r - 16)} fill="#FDE68A" />}
-        {/* Zona hijau 6–max bulan */}
-        {maxVal > 6 && <path d={arcPath(valToDeg(zone6), 0, r, r - 16)} fill="#A7F3D0" />}
-        {/* Arc aktif */}
+    <div className="flex flex-col items-center justify-center h-full gap-1">
+      {/* SVG speedometer bersih */}
+      <svg viewBox="0 0 200 130" style={{ width: '100%', maxWidth: 280, margin: '0 auto', display: 'block' }}>
+        {/* Arc latar abu-abu */}
+        <path d="M 20 110 A 80 80 0 0 1 180 110"
+          fill="none" stroke="#e5e7eb" strokeWidth="14"
+          strokeLinecap="round" />
+        {/* Arc nilai berwarna */}
         {nilai > 0 && (
-          <path d={arcPath(180, jarum, r, r - 16)} fill={warna} opacity={0.85} />
+          <path d={`M 20 110 A 80 80 0 ${largeArc} 1 ${endX} ${endY}`}
+            fill="none" stroke={warna} strokeWidth="14"
+            strokeLinecap="round" />
         )}
-        {/* Jarum */}
-        <line x1={cx} y1={cy} x2={jarumX} y2={jarumY}
-          stroke="#374151" strokeWidth={2.5} strokeLinecap="round" />
-        <circle cx={cx} cy={cy} r={5} fill="#374151" />
-        {/* Nilai tengah */}
-        <text x={cx} y={cy + 18} textAnchor="middle" fill={warna} fontSize={20} fontWeight="800">{nilai}</text>
-        <text x={cx} y={cy + 30} textAnchor="middle" fill="#6B7280" fontSize={8}>bulan</text>
-        {/* Tick labels: 0, 3, 6, maxVal (tanpa duplikat) */}
-        {[0, zone3, zone6, maxVal].filter((v, i, a) => a.indexOf(v) === i).map((v) => {
-          const deg = valToDeg(v)
-          const tx  = cx + (r + 8) * Math.cos(toRad(deg))
-          const ty  = cy + (r + 8) * Math.sin(toRad(deg))
-          return <text key={v} x={tx} y={ty} textAnchor="middle" fill="#9CA3AF" fontSize={7}>{v}</text>
-        })}
+        {/* Angka besar di tengah */}
+        <text x="100" y="95" textAnchor="middle"
+          fontSize="28" fontWeight="bold" fill="#1f2937">
+          {nilai}
+        </text>
+        {/* Label "bulan" */}
+        <text x="100" y="112" textAnchor="middle"
+          fontSize="11" fill="#6b7280">
+          bulan
+        </text>
+        {/* Tanda skala kiri 0 dan kanan maxBulan */}
+        <text x="20" y="125" textAnchor="middle"
+          fontSize="9" fill="#9ca3af">0</text>
+        <text x="180" y="125" textAnchor="middle"
+          fontSize="9" fill="#9ca3af">{maxBulan}</text>
       </svg>
 
-      {/* Baris target & tombol edit */}
-      <div className="flex items-center gap-1.5 mt-0.5">
+      {/* Target + tombol edit */}
+      <div className="flex items-center gap-1.5">
         <span className="text-[10px] text-gray-400">Target:</span>
         {isEditing ? (
           <input
@@ -343,9 +331,7 @@ function Chart3Speedometer({ profile }) {
         </button>
       </div>
 
-      <p className="text-[9px] text-gray-400 text-center mt-0.5">
-        Estimasi awal · Akurasi meningkat setelah mengisi anggaran
-      </p>
+      <p className="text-[9px] text-gray-400 text-center">Estimasi awal</p>
     </div>
   )
 }
