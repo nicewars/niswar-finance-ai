@@ -773,6 +773,54 @@ function ChartCarousel({ calc, profile }) {
         <ChevronRight size={20} color="#374151" />
       </button>
 
+      {/* Tombol navigasi kiri */}
+      <button
+        onClick={() => setIdx(prev => Math.max(0, prev - 1))}
+        style={{
+          position: 'absolute',
+          left: '8px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          zIndex: 20,
+          width: '40px',
+          height: '40px',
+          borderRadius: '50%',
+          background: 'rgba(255,255,255,0.85)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          border: 'none',
+          cursor: 'pointer',
+          display: idx === 0 ? 'none' : 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ChevronLeft size={20} />
+      </button>
+
+      {/* Tombol navigasi kanan */}
+      <button
+        onClick={() => setIdx(prev => Math.min(6, prev + 1))}
+        style={{
+          position: 'absolute',
+          right: '8px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          zIndex: 20,
+          width: '40px',
+          height: '40px',
+          borderRadius: '50%',
+          background: 'rgba(255,255,255,0.85)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+          border: 'none',
+          cursor: 'pointer',
+          display: idx === 6 ? 'none' : 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <ChevronRight size={20} />
+      </button>
+
       {/* Dot indicator */}
       <div className="flex items-center justify-center gap-1.5 py-3">
         {Array.from({ length: total }, (_, i) => (
