@@ -41,6 +41,37 @@ function renderMarkdown(text) {
 }
 
 // ─────────────────────────────────────────────────────
+// HITUNG PERIODE ANGGARAN BERDASARKAN TANGGAL GAJIAN
+// ─────────────────────────────────────────────────────
+function hitungPeriodeAnggaran(tanggalGajian) {
+  // tanggalGajian adalah angka 1-31
+  const tgl = tanggalGajian || 1
+  const sekarang = new Date()
+  const hari = sekarang.getDate()
+  const bulan = sekarang.getMonth()
+  const tahun = sekarang.getFullYear()
+
+  let periodeStart, periodeEnd
+
+  if (hari >= tgl) {
+    // Sudah lewat tanggal gajian bulan ini
+    // Periode: tanggal gajian bulan ini → sehari sebelum tanggal gajian bulan depan
+    periodeStart = new Date(tahun, bulan, tgl)
+    periodeEnd = new Date(tahun, bulan + 1, tgl - 1)
+  } else {
+    // Belum sampai tanggal gajian bulan ini
+    // Periode: tanggal gajian bulan lalu → sehari sebelum tanggal gajian bulan ini
+    periodeStart = new Date(tahun, bulan - 1, tgl)
+    periodeEnd = new Date(tahun, bulan, tgl - 1)
+  }
+
+  return {
+    start: periodeStart.toISOString().split('T')[0],
+    end:   periodeEnd.toISOString().split('T')[0],
+  }
+}
+
+// ─────────────────────────────────────────────────────
 // BUBBLE PESAN
 // ─────────────────────────────────────────────────────
 function MessageBubble({ message }) {
@@ -191,6 +222,7 @@ function PerencanaanKeuangan() {
   const [session,     setSession]     = useState(null)
   const [budgetDraft, setBudgetDraft] = useState(null)
   const [showSummary, setShowSummary] = useState(false)
+  const [periode,     setPeriode]     = useState(null)
 
   const messagesEndRef = useRef(null)
   const inputRef       = useRef(null)
@@ -203,20 +235,73 @@ function PerencanaanKeuangan() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
 
-  // ── Fungsi utama: kirim pesan ke Anthropic API ─────
-  async function sendMessageToAI(userMessage, currentProfile) {
-    const prof = currentProfile || profile
+  // ── Simpan pesan ke tabel chat_messages ─────────────────────────
+  // Menerima perData & sessData sebagai parameter eksplisit untuk
+  // menghindari stale closure saat dipanggil dari useEffect init.
+  async function simpanPesan(role, content, perData, sessData) {
+    const per  = perData  || periode
+    const sess = sessData || session
+    if (!sess || !per) return
+    try {
+      await supabase.from('chat_messages').insert({
+        user_id:      sess.user.id,
+        period_start: per.start,
+        period_end:   per.end,
+        role,
+        content,
+      })
+    } catch (err) {
+      console.error('Gagal simpan pesan:', err)
+    }
+  }
+
+  // ── Simpan transaksi dari AI ke tabel transactions ───────────────
+  async function simpanTransaksi(txData) {
+    if (!session) return
+    try {
+      // Cari account_id berdasarkan nama akun
+      const { data: akun } = await supabase
+        .from('accounts')
+        .select('id, name')
+        .eq('user_id', session.user.id)
+        .ilike('name', '%' + txData.account_name + '%')
+        .maybeSingle()
+
+      await supabase.from('transactions').insert({
+        user_id:          session.user.id,
+        account_id:       akun?.id || null,
+        amount:           txData.amount,
+        transaction_type: txData.transaction_type || 'expense',
+        description:      txData.description,
+        transaction_date: txData.transaction_date ||
+          new Date().toISOString().split('T')[0],
+      })
+    } catch (err) {
+      console.error('Gagal simpan transaksi:', err)
+    }
+  }
+
+  // ── Fungsi utama: kirim pesan ke AI ─────────────────────────────
+  // currentProfile, currentPeriode, currentSession diteruskan
+  // secara eksplisit dari useEffect init untuk menghindari
+  // stale closure (setState bersifat async, nilai state baru
+  // belum terbaca di render siklus yang sama).
+  async function sendMessageToAI(userMessage, currentProfile, currentPeriode, currentSession) {
+    const prof = currentProfile  || profile
+    const per  = currentPeriode  || periode
+    const sess = currentSession  || session
     if (!prof) return
     setIsLoading(true)
 
-    // Tampilkan pesan user di chat (kecuali trigger awal)
+    // Tampilkan dan simpan pesan user di chat (kecuali trigger awal)
     if (userMessage !== 'START_ONBOARDING') {
       setMessages(prev => [...prev, { role: 'user', content: userMessage }])
+      await simpanPesan('user', userMessage, per, sess)
     }
 
-    // ── Hitung data keuangan dari profil ─────────────
-    const gajiPokok       = prof.gaji_pokok        || 0
-    const tunjanganTetap  = prof.tunjangan_tetap    || 0
+    // ── Hitung data keuangan dari profil ──────────────
+    const gajiPokok       = prof.gaji_pokok       || 0
+    const tunjanganTetap  = prof.tunjangan_tetap   || 0
     const totalPendapatan = gajiPokok + tunjanganTetap
     const bpjsKes         = Math.min(totalPendapatan, 12_000_000) * 0.01
     const bpjsTK          = (totalPendapatan * 0.02)
@@ -326,7 +411,30 @@ GAYA KOMUNIKASI:
 - Berikan apresiasi singkat setelah pengguna menjawab
 - Jangan tampilkan semua pertanyaan sekaligus
 
-GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurban.`
+GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurban.
+
+SETELAH ANGGARAN TERSIMPAN - MODE ASISTEN HARIAN:
+Setelah rencana anggaran disetujui dan disimpan,
+kamu beralih peran menjadi asisten keuangan harian.
+
+Tugas utamamu dalam mode ini:
+1. Mencatat pengeluaran yang disebutkan pengguna
+   Ketika pengguna berkata "tadi beli bensin 50rb"
+   atau "habis makan siang 35 ribu", langsung
+   ekstrak: nama pengeluaran, nominal, kategori.
+   Output format JSON khusus:
+   {"type":"TRANSACTION","data":{"description":"nama pengeluaran","amount":nominal_angka,"account_name":"nama akun yang paling cocok","transaction_date":"YYYY-MM-DD","transaction_type":"expense"}}
+
+2. Memberikan update kondisi keuangan saat diminta
+   Ketika pengguna bertanya "gimana keuanganku?"
+   atau "masih ada berapa?" berikan ringkasan
+   berdasarkan anggaran vs pengeluaran aktual.
+
+3. Memberikan peringatan jika ada pos yang hampir
+   atau sudah melebihi anggaran.
+
+Selalu gunakan bahasa yang hangat, singkat,
+dan tidak menggurui dalam mode harian ini.`
 
     // ── Bangun array messages untuk API ───────────────
     const apiMessages = messages
@@ -364,29 +472,49 @@ GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurb
           .trim()
       }
 
-      // ── Cek apakah ada BUDGET_PLAN JSON ──────────────
-      // Pattern: cari JSON object yang dimulai dengan {"type":"BUDGET_PLAN"
-      const jsonMatch = aiText.match(/(\{"type":"BUDGET_PLAN"[\s\S]*\})/)
+      // ── Deteksi BUDGET_PLAN JSON ──────────────────────
+      const jsonRegex = /\{[\s\S]*?"type"\s*:\s*"BUDGET_PLAN"[\s\S]*?\}/g
+      const matches   = aiText.match(jsonRegex)
+      const jsonMatch = matches ? matches[0] : null
+
       if (jsonMatch) {
         try {
-          const budgetData = JSON.parse(jsonMatch[1])
+          const budgetData = JSON.parse(jsonMatch)
           if (budgetData?.data) {
             setBudgetDraft(budgetData.data)
             setShowSummary(true)
             // Hapus JSON mentah dari teks yang ditampilkan
-            aiText = aiText.replace(jsonMatch[1], '').trim()
+            aiText = aiText.replace(jsonMatch, '').trim()
             if (!aiText) {
               aiText = '✅ Rencana anggaran sudah siap! Silakan review dan setujui di bawah ya.'
             }
           }
         } catch (e) {
-          console.error('JSON parse error:', e)
+          console.error('BUDGET_PLAN parse error:', e)
         }
       }
 
-      // Tampilkan respons AI
+      // ── Deteksi TRANSACTION JSON ──────────────────────
+      const txRegex   = /\{[\s\S]*?"type"\s*:\s*"TRANSACTION"[\s\S]*?\}/g
+      const txMatches = aiText.match(txRegex)
+      if (txMatches) {
+        for (const txJson of txMatches) {
+          try {
+            const txData = JSON.parse(txJson)
+            if (txData.type === 'TRANSACTION') {
+              await simpanTransaksi(txData.data)
+              aiText = aiText.replace(txJson, '').trim()
+            }
+          } catch (e) {
+            console.error('TX parse error:', e)
+          }
+        }
+      }
+
+      // Tampilkan dan simpan respons AI
       if (aiText) {
         setMessages(prev => [...prev, { role: 'assistant', content: aiText }])
+        await simpanPesan('assistant', aiText, per, sess)
       }
 
     } catch (error) {
@@ -400,54 +528,100 @@ GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurb
     }
   }
 
-  // ── Simpan rencana anggaran ke Supabase ────────────
+  // ── Simpan rencana anggaran ke Supabase ─────────────────────────
   async function saveBudgetPlan() {
-    if (!budgetDraft || !session) return
+    if (!budgetDraft || !session || !periode) return
     setIsLoading(true)
 
     try {
-      const items = budgetDraft.accounts_update || []
+      // Fetch semua akun milik user dulu
+      const { data: semuaAkun } = await supabase
+        .from('accounts')
+        .select('id, name, parent_id')
+        .eq('user_id', session.user.id)
 
-      // Update monthly_budget untuk setiap akun yang ditemukan
-      for (const item of items) {
+      // Buat/update budget_plan untuk periode ini
+      const { data: plan, error: planError } = await supabase
+        .from('budget_plans')
+        .upsert({
+          user_id:         session.user.id,
+          plan_month:      periode.start,
+          total_income:    budgetDraft.total_income || 0,
+          total_allocated: (budgetDraft.accounts_update || [])
+            .reduce((sum, a) => sum + (a.monthly_budget || 0), 0),
+          status:          'approved',
+          ai_summary:      budgetDraft.ai_summary || '',
+        }, { onConflict: 'user_id,plan_month' })
+        .select()
+        .single()
+
+      if (planError) throw planError
+
+      // Update setiap akun yang disebutkan AI
+      const updates = budgetDraft.accounts_update || []
+      for (const item of updates) {
         if (!item.name || !item.monthly_budget) continue
 
-        const { data: account } = await supabase
-          .from('accounts')
-          .select('id')
-          .eq('user_id', session.user.id)
-          .ilike('name', `%${item.name}%`)
-          .maybeSingle()
+        // Cari akun dengan nama paling mirip (case-insensitive, partial match)
+        const namaCari = item.name.toLowerCase()
+          .replace(/tabungan:\s*/i, '')
+          .replace(/investasi:\s*/i, '')
+          .trim()
 
-        if (account?.id) {
+        const akunCocok = semuaAkun?.find(a =>
+          a.name.toLowerCase().includes(namaCari) ||
+          namaCari.includes(a.name.toLowerCase())
+        )
+
+        if (akunCocok) {
           await supabase
             .from('accounts')
-            .update({ monthly_budget: item.monthly_budget })
-            .eq('id', account.id)
+            .update({
+              monthly_budget:       item.monthly_budget,
+              budget_type:          item.budget_type || 'fixed_monthly',
+              period_amount:        item.period_amount || null,
+              period_months:        item.period_months || null,
+              next_occurrence_date: item.next_occurrence_date || null,
+              target_amount:        item.target_amount || null,
+              target_date:          item.target_date || null,
+              accumulated_amount:   item.accumulated_amount || 0,
+              priority_tier:        item.priority_tier || 6,
+            })
+            .eq('id', akunCocok.id)
         }
       }
 
       // Tandai onboarding selesai di profil
-      await supabase
-        .from('profiles')
-        .update({
-          onboarding_completed:    true,
-          last_budget_plan_date:   new Date().toISOString().split('T')[0],
-        })
-        .eq('id', session.user.id)
+      await supabase.from('profiles').update({
+        onboarding_completed:    true,
+        onboarding_completed_at: new Date().toISOString(),
+        last_budget_plan_date:   periode.start,
+        current_period_start:    periode.start,
+        current_period_end:      periode.end,
+      }).eq('id', session.user.id)
 
-      // Redirect ke halaman anggaran
-      navigate('/anggaran')
+      // Tampilkan pesan sukses di chat
+      const pesanSukses =
+        `Rencana anggaranmu untuk periode ${periode.start} sampai ${periode.end} sudah tersimpan! 🎉\n\n` +
+        `Mulai sekarang kamu bisa laporan pengeluaran kapan saja lewat chat ini. ` +
+        `Cukup ceritakan apa yang kamu beli dan nominalnya, atau kirim foto struk, ` +
+        `dan saya akan mencatatnya otomatis. Semangat jaga keuangannya! 💪`
+
+      setMessages(prev => [...prev, { role: 'assistant', content: pesanSukses }])
+      await simpanPesan('assistant', pesanSukses)
+
+      setShowSummary(false)
+      setBudgetDraft(null)
 
     } catch (error) {
-      console.error('Save error:', error)
-      alert('Gagal menyimpan rencana anggaran. Coba lagi ya.')
+      console.error('Error saving budget:', error)
+      alert('Gagal menyimpan anggaran: ' + error.message)
     } finally {
       setIsLoading(false)
     }
   }
 
-  // ── useEffect: inisialisasi saat mount ────────────
+  // ── useEffect: inisialisasi saat mount ──────────────────────────
   useEffect(() => {
     async function init() {
       if (!supabase) return
@@ -464,17 +638,49 @@ GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurb
             total_cicilan, status_pernikahan, jumlah_tanggungan,
             agama, provinsi, kota_kabupaten,
             investasi_aktif, tujuan_keuangan,
-            kepemilikan_kendaraan, status_tempat
+            kepemilikan_kendaraan, status_tempat,
+            tanggal_gajian, current_period_start,
+            onboarding_completed
           `)
           .eq('id', sess.user.id)
           .single()
 
-        if (prof) {
-          setProfile(prof)
-          // Trigger pesan pembuka AI — pass prof langsung
-          // untuk menghindari stale closure
-          await sendMessageToAI('START_ONBOARDING', prof)
+        if (!prof) { navigate('/login'); return }
+        setProfile(prof)
+
+        // ── Hitung periode anggaran ───────────────────────
+        const per = hitungPeriodeAnggaran(prof.tanggal_gajian)
+        setPeriode(per)
+
+        // Update periode di profiles jika belum ada
+        if (!prof.current_period_start) {
+          await supabase.from('profiles').update({
+            current_period_start: per.start,
+            current_period_end:   per.end,
+          }).eq('id', sess.user.id)
         }
+
+        // ── Load riwayat chat dari Supabase ───────────────
+        const { data: chatHistory } = await supabase
+          .from('chat_messages')
+          .select('role, content, created_at')
+          .eq('user_id', sess.user.id)
+          .eq('period_start', per.start)
+          .order('created_at', { ascending: true })
+
+        if (chatHistory && chatHistory.length > 0) {
+          // Ada riwayat percakapan — langsung tampilkan
+          setMessages(chatHistory.map(m => ({
+            role:    m.role,
+            content: m.content,
+          })))
+        } else {
+          // Percakapan baru — mulai wawancara onboarding
+          // Teruskan sess & per secara eksplisit karena
+          // setState di atas belum terbaca via state closure
+          await sendMessageToAI('START_ONBOARDING', prof, per, sess)
+        }
+
       } catch (err) {
         console.error('Init error:', err)
         navigate('/login')
@@ -484,7 +690,7 @@ GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurb
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Handle submit ──────────────────────────────────
+  // ── Handle submit ────────────────────────────────────────────────
   function handleSend() {
     const text = inputText.trim()
     if (!text || isLoading) return
@@ -500,7 +706,7 @@ GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurb
     }
   }
 
-  // ── RENDER ─────────────────────────────────────────
+  // ── RENDER ───────────────────────────────────────────────────────
   return (
     <div className="flex flex-col" style={{ height: '100dvh', background: '#f8fafc' }}>
 
