@@ -607,7 +607,7 @@ dan tidak menggurui dalam mode harian ini.`
       console.error('AI invoke error:', error)
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `😅 Maaf, ada kendala teknis: ${error.message || 'Unknown error'}.\n\nCoba kirim pesan lagi ya!`,
+        content: '❌ Error [' + (error?.code || error?.status || 'unknown') + ']: ' + (error?.message || 'unknown').slice(0, 80),
       }])
     } finally {
       setIsLoading(false)
