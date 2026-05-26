@@ -337,52 +337,26 @@ GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurb
       apiMessages.push({ role: 'user', content: userMessage })
     }
 
-    // ── Cek API key ───────────────────────────────────
-    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
-    if (!apiKey) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: '⚠️ API key Anthropic belum dikonfigurasi.\n\nTambahkan baris berikut ke file .env.local kamu:\n\nVITE_ANTHROPIC_API_KEY=sk-ant-...\n\nLalu restart dev server dengan npm run dev.',
-      }])
-      setIsLoading(false)
-      return
-    }
-
-    // ── Panggil Anthropic API ─────────────────────────
+    // ── Panggil Supabase Edge Function (proxy ke Anthropic) ──
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type':                    'application/json',
-          'x-api-key':                       apiKey,
-          'anthropic-version':               '2023-06-01',
-          'anthropic-dangerous-allow-browser': 'true',
-          'anthropic-beta':                  'web-search-2025-03-05',
-        },
-        body: JSON.stringify({
-          model:      'claude-sonnet-4-20250514',
-          max_tokens: 1500,
-          system:     systemPrompt,
+      const { data, error } = await supabase.functions.invoke('chat-ai', {
+        body: {
+          system: systemPrompt,
+          messages: apiMessages.length > 0
+            ? apiMessages
+            : [{ role: 'user', content: 'Mulai.' }],
           tools: [{
             type: 'web_search_20250305',
             name: 'web_search',
           }],
-          messages: apiMessages.length > 0
-            ? apiMessages
-            : [{ role: 'user', content: 'Mulai.' }],
-        }),
+        },
       })
 
-      const data = await response.json()
-
-      // Tangkap error dari API
-      if (data.error) {
-        throw new Error(data.error.message || 'Anthropic API error')
-      }
+      if (error) throw error
 
       // Kumpulkan semua text block (bisa ada beberapa karena tool use)
       let aiText = ''
-      if (Array.isArray(data.content)) {
+      if (data?.content) {
         aiText = data.content
           .filter(block => block.type === 'text')
           .map(block => block.text)
