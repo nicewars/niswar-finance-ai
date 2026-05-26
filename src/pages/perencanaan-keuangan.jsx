@@ -16,12 +16,6 @@ const BULAN_ID = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ]
 
-const BUDGET_TYPE_LABEL = {
-  fixed_monthly: 'Tetap/Bulan',
-  sinking_fund:  'Sinking Fund',
-  savings_goal:  'Target Tabungan',
-}
-
 // Render markdown dasar: **bold**, *italic*, baris baru
 function renderMarkdown(text) {
   if (!text) return null
@@ -51,7 +45,6 @@ function hitungPeriodeAnggaran(tanggalGajian) {
   const tahun = sekarang.getFullYear()
 
   let periodeStart, periodeEnd
-
   if (hari >= tgl) {
     periodeStart = new Date(tahun, bulan, tgl)
     periodeEnd   = new Date(tahun, bulan + 1, tgl - 1)
@@ -123,80 +116,76 @@ function TypingIndicator() {
 }
 
 // ─────────────────────────────────────────────────────
-// BUDGET SUMMARY CARD
+// SIMPAN BUDGET PLAN — fungsi murni, tidak sentuh state
+// Menerima semua data via parameter eksplisit.
+// Mengembalikan string pesan sukses, atau null jika gagal.
 // ─────────────────────────────────────────────────────
-function BudgetSummaryCard({ draft, bulanLabel, onRevise, onSave, isLoading }) {
-  if (!draft) return null
-  const items = draft.accounts_update || []
-  const total = items.reduce((s, a) => s + (a.monthly_budget || 0), 0)
+async function saveBudgetPlan(draft, sessionData, periodeData, sb) {
+  if (!draft || !sessionData || !periodeData) return null
 
-  return (
-    <div className="mx-4 mb-3 rounded-2xl overflow-hidden border border-indigo-200 shadow-md"
-      style={{ background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)' }}>
-      <div className="px-4 py-3 border-b border-indigo-100 flex items-center justify-between">
-        <p className="text-sm font-bold text-indigo-800">
-          📊 Rencana Anggaran {bulanLabel}
-        </p>
-        <span className="text-xs text-indigo-500">{items.length} pos</span>
-      </div>
+  try {
+    // Fetch semua akun milik user
+    const { data: semuaAkun } = await sb
+      .from('accounts')
+      .select('id, name')
+      .eq('user_id', sessionData.user.id)
 
-      <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-        <table className="w-full text-xs">
-          <thead>
-            <tr style={{ background: 'rgba(99,102,241,0.08)' }}
-              className="border-b border-indigo-100">
-              <th className="text-left px-4 py-2 text-indigo-600 font-semibold">Pos</th>
-              <th className="text-right px-4 py-2 text-indigo-600 font-semibold">Budget/Bulan</th>
-              <th className="text-left px-4 py-2 text-indigo-600 font-semibold">Tipe</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, i) => (
-              <tr key={i} className="border-b border-indigo-50 last:border-0">
-                <td className="px-4 py-1.5 text-gray-700">{item.name}</td>
-                <td className="px-4 py-1.5 text-right font-mono text-gray-800">
-                  {idr(item.monthly_budget)}
-                </td>
-                <td className="px-4 py-1.5 text-gray-500">
-                  {BUDGET_TYPE_LABEL[item.budget_type] || item.budget_type || '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{ background: '#4f46e5' }}>
-              <td className="px-4 py-2 font-bold text-white text-xs">TOTAL</td>
-              <td className="px-4 py-2 text-right font-mono font-bold text-white text-xs">
-                {idr(total)}
-              </td>
-              <td className="px-4 py-2 text-xs text-indigo-200">
-                {draft.ai_summary ? '✓ AI verified' : ''}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+    // Upsert budget_plan untuk periode ini
+    await sb.from('budget_plans').upsert({
+      user_id:         sessionData.user.id,
+      plan_month:      periodeData.start,
+      total_income:    draft.total_income || 0,
+      total_allocated: (draft.accounts_update || [])
+        .reduce((s, a) => s + (a.monthly_budget || 0), 0),
+      status:          'approved',
+      ai_summary:      draft.ai_summary || '',
+    }, { onConflict: 'user_id,plan_month' })
 
-      <div className="px-4 py-3 flex gap-2 justify-end border-t border-indigo-100">
-        <button
-          type="button"
-          onClick={onRevise}
-          className="px-4 py-1.5 rounded-lg text-sm font-semibold border border-indigo-300 text-indigo-600 bg-white cursor-pointer hover:bg-indigo-50 transition-colors"
-        >
-          Revisi
-        </button>
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={isLoading}
-          className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white cursor-pointer disabled:opacity-50 transition-opacity"
-          style={{ background: '#22c55e' }}
-        >
-          {isLoading ? 'Menyimpan...' : 'Setujui & Simpan →'}
-        </button>
-      </div>
-    </div>
-  )
+    // Update setiap akun yang disebutkan AI
+    for (const item of (draft.accounts_update || [])) {
+      if (!item.name || !item.monthly_budget) continue
+
+      const namaCari = item.name.toLowerCase()
+        .replace(/^(tabungan|investasi|zakat):\s*/, '')
+        .trim()
+
+      const cocok = semuaAkun?.find(a => {
+        const n = a.name.toLowerCase()
+        return n.includes(namaCari) || namaCari.includes(n)
+      })
+
+      if (cocok) {
+        await sb.from('accounts').update({
+          monthly_budget:       item.monthly_budget || 0,
+          budget_type:          item.budget_type || 'fixed_monthly',
+          period_amount:        item.period_amount || null,
+          period_months:        item.period_months || null,
+          next_occurrence_date: item.next_occurrence_date || null,
+          target_amount:        item.target_amount || null,
+          target_date:          item.target_date || null,
+          priority_tier:        item.priority_tier || 6,
+        }).eq('id', cocok.id)
+      }
+    }
+
+    // Tandai onboarding selesai di profiles
+    await sb.from('profiles').update({
+      onboarding_completed:    true,
+      onboarding_completed_at: new Date().toISOString(),
+      last_budget_plan_date:   periodeData.start,
+    }).eq('id', sessionData.user.id)
+
+    return (
+      '✅ Rencana anggaran periode ' + periodeData.start +
+      ' hingga ' + periodeData.end + ' sudah tersimpan otomatis!\n\n' +
+      'Mulai sekarang ceritakan saja pengeluaranmu dan saya akan mencatat ' +
+      'semuanya. Atau ketik "ringkasan" kapan saja untuk melihat kondisi ' +
+      'keuanganmu. 💪'
+    )
+  } catch (err) {
+    console.error('saveBudgetPlan error:', err)
+    return null
+  }
 }
 
 // ─────────────────────────────────────────────────────
@@ -205,14 +194,14 @@ function BudgetSummaryCard({ draft, bulanLabel, onRevise, onSave, isLoading }) {
 function PerencanaanKeuangan() {
   const navigate = useNavigate()
 
-  const [messages,    setMessages]    = useState([])
-  const [inputText,   setInputText]   = useState('')
-  const [isLoading,   setIsLoading]   = useState(false)
-  const [profile,     setProfile]     = useState(null)
-  const [session,     setSession]     = useState(null)
-  const [budgetDraft, setBudgetDraft] = useState(null)
-  const [showSummary, setShowSummary] = useState(false)
-  const [periode,     setPeriode]     = useState(null)
+  const [messages,  setMessages]  = useState([])
+  const [inputText, setInputText] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [profile,   setProfile]   = useState(null)
+  const [session,   setSession]   = useState(null)
+  const [periode,   setPeriode]   = useState(null)
+  const [chatMode,  setChatMode]  = useState(null)
+  // chatMode: null | 'interview' | 'review' | 'daily'
 
   const messagesEndRef = useRef(null)
   const inputRef       = useRef(null)
@@ -226,7 +215,6 @@ function PerencanaanKeuangan() {
   }, [messages, isLoading])
 
   // ── useEffect 1: Fetch data (session, profile, periode, history) ──
-  // Tidak memanggil AI sama sekali — hanya mengisi state.
   useEffect(() => {
     async function init() {
       if (!supabase) return
@@ -252,7 +240,6 @@ function PerencanaanKeuangan() {
         if (!prof) { navigate('/login'); return }
         setProfile(prof)
 
-        // Hitung dan simpan periode anggaran
         const per = hitungPeriodeAnggaran(prof.tanggal_gajian)
         setPeriode(per)
 
@@ -276,9 +263,9 @@ function PerencanaanKeuangan() {
             role:    m.role,
             content: m.content,
           })))
-          // Ada riwayat → useEffect 2 tidak akan fire (messages.length > 0)
         }
-        // Jika tidak ada riwayat → messages tetap [] → useEffect 2 akan fire
+        // Jika tidak ada riwayat → messages tetap []
+        // → useEffect 2 akan tentukan mode dan trigger AI
 
       } catch (err) {
         console.error('Init error:', err)
@@ -289,19 +276,58 @@ function PerencanaanKeuangan() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── useEffect 2: Trigger AI hanya setelah semua state siap ────────
-  // Dipanggil otomatis saat session, profile, dan periode sudah terisi,
-  // dan belum ada pesan (percakapan baru).
+  // ── useEffect 2: Deteksi mode chat saat semua state siap ─────────
   useEffect(() => {
-    if (session && profile && periode && supabase && messages.length === 0) {
-      sendMessageToAI('START_ONBOARDING')
+    if (!session || !profile || !periode || !supabase) return
+
+    async function tentukanMode() {
+      // Cek apakah ada budget_plan yang sudah approved untuk periode ini
+      const { data: planBulanIni } = await supabase
+        .from('budget_plans')
+        .select('id, status')
+        .eq('user_id', session.user.id)
+        .eq('plan_month', periode.start)
+        .eq('status', 'approved')
+        .maybeSingle()
+
+      if (planBulanIni) {
+        // Anggaran bulan ini sudah ada → mode asisten harian
+        setChatMode('daily')
+        if (messages.length === 0) {
+          sendMessageToAI('DAILY_GREETING', 'daily')
+        }
+        return
+      }
+
+      // Cek apakah ada data bulan-bulan sebelumnya
+      const { data: planSebelumnya } = await supabase
+        .from('budget_plans')
+        .select('id, ai_summary, total_income')
+        .eq('user_id', session.user.id)
+        .neq('plan_month', periode.start)
+        .eq('status', 'approved')
+        .order('plan_month', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (planSebelumnya) {
+        // Ada data bulan lalu → lakukan review cepat
+        setChatMode('review')
+        sendMessageToAI('START_REVIEW', 'review')
+      } else {
+        // Belum pernah ada anggaran sama sekali → wawancara penuh
+        setChatMode('interview')
+        sendMessageToAI('START_ONBOARDING', 'interview')
+      }
+    }
+
+    if (messages.length === 0) {
+      tentukanMode()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, profile, periode])
 
   // ── Simpan pesan ke tabel chat_messages ──────────────────────────
-  // Membaca session & periode langsung dari state.
-  // Dipanggil setelah useEffect 2 memastikan keduanya sudah terisi.
   async function simpanPesan(role, content) {
     if (!session?.user?.id || !periode?.start) {
       console.warn('simpanPesan: session atau periode belum siap, skip simpan')
@@ -347,10 +373,10 @@ function PerencanaanKeuangan() {
   }
 
   // ── Fungsi utama: kirim pesan ke AI ──────────────────────────────
-  // Hanya dipanggil setelah session + profile + periode sudah di state,
-  // sehingga tidak perlu meneruskan parameter eksplisit.
-  async function sendMessageToAI(userMessage) {
-    // MASALAH 3 — guard supabase null
+  // modeParam diteruskan dari tentukanMode() secara eksplisit
+  // karena setChatMode() bersifat async — state belum terbaca
+  // di siklus render yang sama.
+  async function sendMessageToAI(userMessage, modeParam) {
     if (!supabase) {
       console.error('Supabase client belum siap')
       setMessages(prev => [...prev, {
@@ -359,23 +385,43 @@ function PerencanaanKeuangan() {
       }])
       return
     }
-
     if (!profile) return
+
+    const currentMode = modeParam || chatMode || 'interview'
     setIsLoading(true)
 
-    // Tampilkan pesan user di chat (kecuali trigger awal)
-    if (userMessage !== 'START_ONBOARDING') {
+    // Tampilkan pesan user (kecuali trigger internal)
+    const isInternal = ['START_ONBOARDING', 'START_REVIEW', 'DAILY_GREETING']
+      .includes(userMessage)
+
+    if (!isInternal) {
       setMessages(prev => [...prev, { role: 'user', content: userMessage }])
     }
 
-    // MASALAH 4 — simpan pesan user dalam try-catch TERPISAH
-    // agar kegagalan simpan tidak menghentikan panggilan ke AI
-    if (userMessage !== 'START_ONBOARDING') {
-      try {
-        await simpanPesan('user', userMessage)
-      } catch (e) {
+    // Simpan pesan user (try-catch terpisah — tidak boleh hentikan AI)
+    if (!isInternal) {
+      try { await simpanPesan('user', userMessage) } catch (e) {
         console.warn('Gagal simpan pesan user:', e)
       }
+    }
+
+    // ── Fetch akun dengan budget untuk system prompt ──
+    let ringkasanAnggaran = 'Belum ada data anggaran'
+    try {
+      const { data: akunTerisi } = await supabase
+        .from('accounts')
+        .select('name, monthly_budget, budget_type, category, priority_tier')
+        .eq('user_id', session.user.id)
+        .gt('monthly_budget', 0)
+        .order('priority_tier', { ascending: true })
+
+      if (akunTerisi?.length > 0) {
+        ringkasanAnggaran = akunTerisi
+          .map(a => a.name + ': Rp ' + a.monthly_budget.toLocaleString('id-ID'))
+          .join('\n')
+      }
+    } catch (e) {
+      console.warn('Gagal fetch akun untuk prompt:', e)
     }
 
     // ── Hitung data keuangan dari profil ──────────────
@@ -390,6 +436,47 @@ function PerencanaanKeuangan() {
     const systemPrompt = `Kamu adalah AI Perencana Keuangan dari Smart Finance AI. \
 Tugasmu membantu ${profile.nama_lengkap || 'pengguna'} menyusun anggaran bulanan ${bulanLabel} \
 yang realistis melalui percakapan yang hangat dan natural.
+
+MODE CHAT SAAT INI: ${currentMode}
+
+JIKA MODE = 'interview':
+  Lakukan wawancara lengkap sesuai alur yang sudah didefinisikan di bawah.
+
+JIKA MODE = 'review':
+  Ini adalah pergantian periode baru. Pengguna sudah pernah membuat anggaran
+  sebelumnya. JANGAN lakukan wawancara dari nol.
+
+  Alur review:
+  1. Sambut dengan hangat, sebutkan bahwa periode baru sudah dimulai
+  2. SELALU tanya gaji bulan ini PERTAMA:
+     "Gaji bulan ini berapa? Termasuk semua komponen ya — gaji pokok, tunjangan tetap,
+     dan insentif tidak tetap kalau ada (seperti transport, makan, atau lainnya
+     yang tergantung kehadiran)"
+  3. Setelah gaji dikonfirmasi, tampilkan daftar anggaran bulan lalu per kategori
+     dan tanya: "Untuk [nama pos] yang bulan lalu Rp X, bulan ini ada perubahan?"
+  4. Jika pengguna bilang tidak ada perubahan untuk semua pos, langsung finalisasi
+     dengan nilai yang sama
+  5. Output BUDGET_PLAN JSON seperti biasa
+
+  Data anggaran bulan lalu:
+${ringkasanAnggaran}
+
+JIKA MODE = 'daily':
+  Kamu adalah asisten keuangan harian. JANGAN tanya soal perencanaan anggaran lagi
+  karena sudah selesai bulan ini.
+
+  Tugasmu:
+  1. Catat pengeluaran yang disebutkan pengguna dalam format TRANSACTION JSON
+  2. Jawab pertanyaan tentang kondisi keuangan
+  3. Berikan peringatan jika ada pos yang hampir habis anggarannya
+  4. Gunakan bahasa singkat dan hangat
+
+  Sapaan harian yang natural, contoh:
+  "Halo ${profile.nama_lengkap || 'kamu'}! Ada yang mau dicatat hari ini,
+  atau ada yang ingin kamu tanyakan soal keuanganmu? 😊"
+
+  Data anggaran aktif:
+${ringkasanAnggaran}
 
 DATA PENGGUNA:
 Nama: ${profile.nama_lengkap || '—'}
@@ -440,7 +527,7 @@ PRINSIP YANG WAJIB KAMU IKUTI:
    Jika total kebutuhan > pendapatan, kurangi dari Tier 8 dulu, naik ke atas.
    Jangan kurangi Tier 1-2. Tampilkan apa yang dikurangi dan alasannya.
 
-ALUR WAWANCARA — tanyakan SATU hal per pesan:
+ALUR WAWANCARA (hanya untuk mode 'interview') — tanyakan SATU hal per pesan:
 
 TAHAP A — PEMBUKAAN:
   Sapa hangat, sebut nama, jelaskan apa yang akan kita lakukan bersama.
@@ -492,39 +579,21 @@ GAYA KOMUNIKASI:
 
 GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurban.
 
-SETELAH ANGGARAN TERSIMPAN - MODE ASISTEN HARIAN:
-Setelah rencana anggaran disetujui dan disimpan,
-kamu beralih peran menjadi asisten keuangan harian.
-
-Tugas utamamu dalam mode ini:
-1. Mencatat pengeluaran yang disebutkan pengguna
-   Ketika pengguna berkata "tadi beli bensin 50rb"
-   atau "habis makan siang 35 ribu", langsung
-   ekstrak: nama pengeluaran, nominal, kategori.
-   Output format JSON khusus:
-   {"type":"TRANSACTION","data":{"description":"nama pengeluaran","amount":nominal_angka,"account_name":"nama akun yang paling cocok","transaction_date":"YYYY-MM-DD","transaction_type":"expense"}}
-
-2. Memberikan update kondisi keuangan saat diminta
-   Ketika pengguna bertanya "gimana keuanganku?"
-   atau "masih ada berapa?" berikan ringkasan
-   berdasarkan anggaran vs pengeluaran aktual.
-
-3. Memberikan peringatan jika ada pos yang hampir
-   atau sudah melebihi anggaran.
-
-Selalu gunakan bahasa yang hangat, singkat,
-dan tidak menggurui dalam mode harian ini.`
+MODE ASISTEN HARIAN — mencatat pengeluaran:
+Ketika pengguna berkata "tadi beli bensin 50rb" atau "habis makan siang 35 ribu",
+langsung ekstrak dan output format JSON:
+{"type":"TRANSACTION","data":{"description":"nama pengeluaran","amount":nominal_angka,"account_name":"nama akun yang paling cocok","transaction_date":"YYYY-MM-DD","transaction_type":"expense"}}`
 
     // ── Bangun array messages untuk API ───────────────
     const apiMessages = messages
       .filter(m => m.role !== 'system')
       .map(m => ({ role: m.role, content: m.content }))
 
-    if (userMessage !== 'START_ONBOARDING') {
+    if (!isInternal) {
       apiMessages.push({ role: 'user', content: userMessage })
     }
 
-    // MASALAH 4 — try-catch UTAMA hanya untuk panggilan AI
+    // ── Panggil Supabase Edge Function ────────────────
     try {
       const { data, error } = await supabase.functions.invoke('chat-ai', {
         body: {
@@ -541,7 +610,6 @@ dan tidak menggurui dalam mode harian ini.`
 
       if (error) throw error
 
-      // Kumpulkan semua text block
       let aiText = ''
       if (data?.content) {
         aiText = data.content
@@ -551,24 +619,29 @@ dan tidak menggurui dalam mode harian ini.`
           .trim()
       }
 
-      // ── Deteksi BUDGET_PLAN JSON ────────────────────
+      // ── Deteksi dan auto-save BUDGET_PLAN JSON ──────
+      let pesanSukses = null
       const jsonRegex = /\{[\s\S]*?"type"\s*:\s*"BUDGET_PLAN"[\s\S]*?\}/g
-      const matches   = aiText.match(jsonRegex)
-      const jsonMatch = matches ? matches[0] : null
+      const jsonMatches = aiText.match(jsonRegex)
 
-      if (jsonMatch) {
+      if (jsonMatches) {
         try {
-          const budgetData = JSON.parse(jsonMatch)
-          if (budgetData?.data) {
-            setBudgetDraft(budgetData.data)
-            setShowSummary(true)
-            aiText = aiText.replace(jsonMatch, '').trim()
-            if (!aiText) {
-              aiText = '✅ Rencana anggaran sudah siap! Silakan review dan setujui di bawah ya.'
-            }
+          const budgetData = JSON.parse(jsonMatches[0])
+          if (budgetData.type === 'BUDGET_PLAN') {
+            // Auto-save langsung tanpa konfirmasi user
+            pesanSukses = await saveBudgetPlan(
+              budgetData.data,
+              session,
+              periode,
+              supabase
+            )
+            // Setelah save, pindah ke mode harian
+            setChatMode('daily')
+            // Hapus JSON mentah dari teks yang ditampilkan
+            aiText = aiText.replace(jsonMatches[0], '').trim()
           }
         } catch (e) {
-          console.error('BUDGET_PLAN parse error:', e)
+          console.error('Budget plan parse error:', e)
         }
       }
 
@@ -589,17 +662,19 @@ dan tidak menggurui dalam mode harian ini.`
         }
       }
 
-      // Tampilkan respons AI
+      // Tampilkan teks respons AI (jika ada)
       if (aiText) {
         setMessages(prev => [...prev, { role: 'assistant', content: aiText }])
+        try { await simpanPesan('assistant', aiText) } catch (e) {
+          console.warn('Gagal simpan respons AI:', e)
+        }
       }
 
-      // MASALAH 4 — simpan respons AI dalam try-catch TERPISAH
-      if (aiText) {
-        try {
-          await simpanPesan('assistant', aiText)
-        } catch (e) {
-          console.warn('Gagal simpan respons AI:', e)
+      // Tampilkan pesan sukses budget plan (jika ada)
+      if (pesanSukses) {
+        setMessages(prev => [...prev, { role: 'assistant', content: pesanSukses }])
+        try { await simpanPesan('assistant', pesanSukses) } catch (e) {
+          console.warn('Gagal simpan pesan sukses:', e)
         }
       }
 
@@ -607,100 +682,9 @@ dan tidak menggurui dalam mode harian ini.`
       console.error('AI invoke error:', error)
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: '❌ Error [' + (error?.code || error?.status || 'unknown') + ']: ' + (error?.message || 'unknown').slice(0, 80),
+        content: '❌ Error [' + (error?.code || error?.status || 'unknown') + ']: ' +
+          (error?.message || 'unknown').slice(0, 80),
       }])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // ── Simpan rencana anggaran ke Supabase ──────────────────────────
-  async function saveBudgetPlan() {
-    if (!budgetDraft || !session || !periode) return
-    setIsLoading(true)
-
-    try {
-      const { data: semuaAkun } = await supabase
-        .from('accounts')
-        .select('id, name, parent_id')
-        .eq('user_id', session.user.id)
-
-      const { data: plan, error: planError } = await supabase
-        .from('budget_plans')
-        .upsert({
-          user_id:         session.user.id,
-          plan_month:      periode.start,
-          total_income:    budgetDraft.total_income || 0,
-          total_allocated: (budgetDraft.accounts_update || [])
-            .reduce((sum, a) => sum + (a.monthly_budget || 0), 0),
-          status:          'approved',
-          ai_summary:      budgetDraft.ai_summary || '',
-        }, { onConflict: 'user_id,plan_month' })
-        .select()
-        .single()
-
-      if (planError) throw planError
-
-      const updates = budgetDraft.accounts_update || []
-      for (const item of updates) {
-        if (!item.name || !item.monthly_budget) continue
-
-        const namaCari = item.name.toLowerCase()
-          .replace(/tabungan:\s*/i, '')
-          .replace(/investasi:\s*/i, '')
-          .trim()
-
-        const akunCocok = semuaAkun?.find(a =>
-          a.name.toLowerCase().includes(namaCari) ||
-          namaCari.includes(a.name.toLowerCase())
-        )
-
-        if (akunCocok) {
-          await supabase
-            .from('accounts')
-            .update({
-              monthly_budget:       item.monthly_budget,
-              budget_type:          item.budget_type || 'fixed_monthly',
-              period_amount:        item.period_amount || null,
-              period_months:        item.period_months || null,
-              next_occurrence_date: item.next_occurrence_date || null,
-              target_amount:        item.target_amount || null,
-              target_date:          item.target_date || null,
-              accumulated_amount:   item.accumulated_amount || 0,
-              priority_tier:        item.priority_tier || 6,
-            })
-            .eq('id', akunCocok.id)
-        }
-      }
-
-      await supabase.from('profiles').update({
-        onboarding_completed:    true,
-        onboarding_completed_at: new Date().toISOString(),
-        last_budget_plan_date:   periode.start,
-        current_period_start:    periode.start,
-        current_period_end:      periode.end,
-      }).eq('id', session.user.id)
-
-      const pesanSukses =
-        `Rencana anggaranmu untuk periode ${periode.start} sampai ${periode.end} sudah tersimpan! 🎉\n\n` +
-        `Mulai sekarang kamu bisa laporan pengeluaran kapan saja lewat chat ini. ` +
-        `Cukup ceritakan apa yang kamu beli dan nominalnya, atau kirim foto struk, ` +
-        `dan saya akan mencatatnya otomatis. Semangat jaga keuangannya! 💪`
-
-      setMessages(prev => [...prev, { role: 'assistant', content: pesanSukses }])
-
-      try {
-        await simpanPesan('assistant', pesanSukses)
-      } catch (e) {
-        console.warn('Gagal simpan pesan sukses:', e)
-      }
-
-      setShowSummary(false)
-      setBudgetDraft(null)
-
-    } catch (error) {
-      console.error('Error saving budget:', error)
-      alert('Gagal menyimpan anggaran: ' + error.message)
     } finally {
       setIsLoading(false)
     }
@@ -738,17 +722,30 @@ dan tidak menggurui dalam mode harian ini.`
             Dashboard
           </button>
           <span className="text-sm font-bold text-gray-800">AI Perencana Keuangan</span>
-          <span className="text-xs px-2.5 py-1 rounded-full font-medium shrink-0"
-            style={{ background: '#ede9fe', color: '#5b21b6' }}>
-            {bulanLabel}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Badge mode aktif */}
+            {chatMode && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                style={{
+                  background: chatMode === 'daily' ? '#dcfce7' : '#ede9fe',
+                  color:      chatMode === 'daily' ? '#166534' : '#5b21b6',
+                }}>
+                {chatMode === 'daily'    ? '💬 Harian'
+                  : chatMode === 'review'  ? '🔄 Review'
+                  : '📋 Wawancara'}
+              </span>
+            )}
+            <span className="text-xs px-2.5 py-1 rounded-full font-medium"
+              style={{ background: '#ede9fe', color: '#5b21b6' }}>
+              {bulanLabel}
+            </span>
+          </div>
         </div>
       </header>
 
       {/* ── Chat area + input ── */}
       <div className="flex-1 overflow-hidden flex flex-col max-w-2xl mx-auto w-full">
 
-        {/* Messages scrollable */}
         <div className="flex-1 overflow-y-auto px-4 py-5">
 
           {messages.length === 0 && !isLoading && (
@@ -769,16 +766,6 @@ dan tidak menggurui dalam mode harian ini.`
 
           <div ref={messagesEndRef} />
         </div>
-
-        {showSummary && budgetDraft && (
-          <BudgetSummaryCard
-            draft={budgetDraft}
-            bulanLabel={bulanLabel}
-            onRevise={() => setShowSummary(false)}
-            onSave={saveBudgetPlan}
-            isLoading={isLoading}
-          />
-        )}
 
         {/* ── Area input ── */}
         <div className="shrink-0 bg-white border-t border-gray-200 px-4 py-3">
