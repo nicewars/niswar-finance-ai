@@ -223,16 +223,63 @@ async function saveBudgetPlan(draft, sessionData, periodeData, sb) {
     }).eq('id', sessionData.user.id)
 
     return (
-      '✅ Rencana anggaran periode ' + periodeData.start +
-      ' hingga ' + periodeData.end + ' sudah tersimpan otomatis!\n\n' +
-      'Mulai sekarang ceritakan saja pengeluaranmu dan saya akan mencatat ' +
-      'semuanya. Atau ketik "ringkasan" kapan saja untuk melihat kondisi ' +
-      'keuanganmu. 💪'
+      '✅ Rencana anggaran ' + periodeData.start + ' s/d ' + periodeData.end + ' berhasil disimpan!\n\n' +
+      'Total pendapatan: Rp ' + (draft.total_income || 0).toLocaleString('id-ID') + '\n\n' +
+      'Aku sudah mengisi semua pos anggaran di halaman Anggaran. Kamu bisa cek di sana sekarang.\n\n' +
+      'Mulai sekarang, ceritakan saja pengeluaranmu dan aku akan mencatatnya otomatis! 💪'
     )
   } catch (err) {
     console.error('saveBudgetPlan error:', err)
+    return (
+      '❌ Gagal menyimpan anggaran. Error: ' + (err?.message || 'unknown') +
+      '\n\nCoba ketik "simpan anggaran" untuk mencoba lagi.'
+    )
+  }
+}
+
+// ─────────────────────────────────────────────────────
+// EKSTRAK BUDGET PLAN — cari penanda khusus, bukan regex
+// ─────────────────────────────────────────────────────
+function ekstrakBudgetPlan(text) {
+  const START = '===BUDGET_PLAN_START==='
+  const END   = '===BUDGET_PLAN_END==='
+  const idxStart = text.indexOf(START)
+  const idxEnd   = text.indexOf(END)
+  if (idxStart === -1 || idxEnd === -1) return null
+  const jsonStr = text.substring(idxStart + START.length, idxEnd).trim()
+  try {
+    const parsed = JSON.parse(jsonStr)
+    if (parsed.type === 'BUDGET_PLAN') return parsed
+    return null
+  } catch (e) {
+    console.error('Gagal parse budget JSON:', e)
+    console.error('JSON string:', jsonStr)
     return null
   }
+}
+
+// ─────────────────────────────────────────────────────
+// EKSTRAK TRANSAKSI — cari semua penanda, bukan regex
+// ─────────────────────────────────────────────────────
+function ekstrakTransaksi(text) {
+  const START    = '===TRANSACTION_START==='
+  const END      = '===TRANSACTION_END==='
+  const results  = []
+  let searchFrom = 0
+  while (true) {
+    const idxStart = text.indexOf(START, searchFrom)
+    const idxEnd   = text.indexOf(END, searchFrom)
+    if (idxStart === -1 || idxEnd === -1) break
+    const jsonStr = text.substring(idxStart + START.length, idxEnd).trim()
+    try {
+      const parsed = JSON.parse(jsonStr)
+      if (parsed.type === 'TRANSACTION') results.push(parsed.data)
+    } catch (e) {
+      console.error('Gagal parse transaksi:', e)
+    }
+    searchFrom = idxEnd + END.length
+  }
+  return results
 }
 
 // ─────────────────────────────────────────────────────
@@ -629,9 +676,19 @@ TAHAP H — RINGKASAN:
   Jika defisit: tampilkan realokasi yang disarankan.
   Tanya apakah setuju.
 
-TAHAP I — KONFIRMASI & OUTPUT JSON:
-  Jika pengguna setuju, OUTPUT JSON PERSIS seperti ini (tidak ada teks lain):
-  {"type":"BUDGET_PLAN","data":{"total_income":0,"accounts_update":[{"name":"nama akun (pakai nama persis jika sudah ada, atau nama baru)","parent_name":"nama akun induk (isi HANYA jika akun baru, kosongkan jika sudah ada)","category":"expense","monthly_budget":0,"budget_type":"fixed_monthly","period_amount":null,"period_months":null,"next_occurrence_date":null,"target_amount":null,"target_date":null,"accumulated_amount":null,"priority_tier":1,"price_buffer_pct":0}],"ai_summary":"ringkasan"}}
+TAHAP I — KONFIRMASI & SIMPAN DATA:
+  Jika pengguna setuju, tulis pesan penutup yang hangat, lalu di AKHIR pesan
+  sertakan data anggaran dengan format PERSIS ini:
+
+===BUDGET_PLAN_START===
+{"type":"BUDGET_PLAN","data":{"total_income":ANGKA,"ai_summary":"RINGKASAN_SINGKAT","accounts_update":[{"name":"NAMA_AKUN","monthly_budget":ANGKA,"budget_type":"fixed_monthly","parent_name":"NAMA_INDUK_JIKA_AKUN_BARU","category":"KATEGORI","period_amount":null,"period_months":null,"next_occurrence_date":null,"target_amount":null,"target_date":null,"priority_tier":ANGKA}]}}
+===BUDGET_PLAN_END===
+
+  ATURAN WAJIB:
+  - Penanda ===BUDGET_PLAN_START=== dan ===BUDGET_PLAN_END=== ditulis PERSIS di baris sendiri
+  - JSON harus valid dalam SATU BARIS (tidak ada baris baru di dalam JSON)
+  - Jangan bungkus dalam markdown code block (jangan pakai backtick tiga)
+  - "parent_name" diisi HANYA jika akun baru, kosongkan ("") jika sudah ada
 
 GAYA KOMUNIKASI:
 - Gunakan "kamu" bukan "Anda"
@@ -656,8 +713,16 @@ Ketika membuat BUDGET_PLAN JSON, WAJIB ikuti aturan ini:
 
 MODE ASISTEN HARIAN — mencatat pengeluaran:
 Ketika pengguna berkata "tadi beli bensin 50rb" atau "habis makan siang 35 ribu",
-langsung ekstrak dan output format JSON:
-{"type":"TRANSACTION","data":{"description":"nama pengeluaran","amount":nominal_angka,"account_name":"nama akun yang paling cocok","transaction_date":"YYYY-MM-DD","transaction_type":"expense"}}`
+langsung ekstrak dan sertakan format PERSIS ini (bisa lebih dari satu per pesan):
+
+===TRANSACTION_START===
+{"type":"TRANSACTION","data":{"description":"nama pengeluaran","amount":nominal_angka,"account_name":"nama akun yang paling cocok","transaction_date":"YYYY-MM-DD","transaction_type":"expense"}}
+===TRANSACTION_END===
+
+ATURAN WAJIB:
+- Penanda ===TRANSACTION_START=== dan ===TRANSACTION_END=== ditulis PERSIS di baris sendiri
+- JSON harus valid dalam SATU BARIS
+- Jangan bungkus dalam markdown code block (jangan pakai backtick tiga)`
 
     // ── Bangun array messages untuk API ───────────────
     const apiMessages = messages
@@ -694,65 +759,64 @@ langsung ekstrak dan output format JSON:
           .trim()
       }
 
-      // ── Deteksi dan auto-save BUDGET_PLAN JSON ──────
-      // Coba markdown code block dulu, lalu JSON mentah
-      const bpMdRegex  = /```(?:json)?\s*(\{[\s\S]*?"type"\s*:\s*"BUDGET_PLAN"[\s\S]*?\})\s*```/
-      const bpRawRegex = /(\{[\s\S]*?"type"\s*:\s*"BUDGET_PLAN"[\s\S]*?\})/
-      const bpMdMatch  = aiText.match(bpMdRegex)
-      const bpRawMatch = aiText.match(bpRawRegex)
-      const bpJsonStr  = bpMdMatch ? bpMdMatch[1] : bpRawMatch ? bpRawMatch[1] : null
+      // ── Deteksi dan auto-save BUDGET_PLAN (penanda khusus) ─
+      const BP_START   = '===BUDGET_PLAN_START==='
+      const BP_END     = '===BUDGET_PLAN_END==='
+      const budgetPlan = ekstrakBudgetPlan(aiText)
 
-      if (bpJsonStr) {
-        try {
-          const budgetData = JSON.parse(bpJsonStr)
-          if (budgetData.type === 'BUDGET_PLAN') {
-            const pesanSukses = await saveBudgetPlan(
-              budgetData.data, session, periode, supabase
-            )
-            setChatMode('daily')
-            // Hapus seluruh blok JSON (termasuk code fence) dari teks AI
-            aiText = aiText
-              .replace(bpMdMatch ? bpMdMatch[0] : bpJsonStr, '')
-              .trim()
-            // Gabungkan pesan sukses ke dalam aiText yang sama
-            if (pesanSukses) {
-              aiText = aiText ? aiText + '\n\n' + pesanSukses : pesanSukses
-            }
+      if (budgetPlan) {
+        // Bersihkan penanda → sisakan teks verbal AI sebelum penanda
+        const bpS = aiText.indexOf(BP_START)
+        const bpE = aiText.indexOf(BP_END)
+        if (bpS !== -1 && bpE !== -1) {
+          aiText = (aiText.substring(0, bpS) + aiText.substring(bpE + BP_END.length)).trim()
+        }
+        // Tampilkan teks verbal AI jika ada (ringkasan sebelum JSON)
+        if (aiText) {
+          setMessages(prev => [...prev, { role: 'assistant', content: aiText }])
+          try { await simpanPesan('assistant', aiText) } catch (e) {
+            console.warn('Gagal simpan teks verbal:', e)
           }
-        } catch (e) {
-          console.error('Budget JSON parse error:', e)
         }
+        // Tampilkan loading lalu simpan ke database
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: '⏳ Sedang menyimpan rencana anggaran...',
+        }])
+        const hasil = await saveBudgetPlan(budgetPlan.data, session, periode, supabase)
+        setChatMode('daily')
+        // Ganti pesan loading dengan hasil simpan
+        setMessages(prev => [
+          ...prev.slice(0, -1),
+          { role: 'assistant', content: hasil || '✅ Anggaran tersimpan!' },
+        ])
+        try { await simpanPesan('assistant', hasil || '✅ Anggaran tersimpan!') } catch (e) {
+          console.warn('Gagal simpan pesan hasil:', e)
+        }
+        aiText = '' // sudah ditangani di atas
       }
 
-      // ── Deteksi TRANSACTION JSON (markdown atau raw) ─
-      const txAllMatches = []
-      const txMdRegex = /```(?:json)?\s*(\{[\s\S]*?"type"\s*:\s*"TRANSACTION"[\s\S]*?\})\s*```/g
-      let txMd
-      while ((txMd = txMdRegex.exec(aiText)) !== null) {
-        txAllMatches.push({ full: txMd[0], json: txMd[1] })
+      // ── Deteksi dan simpan TRANSACTION (penanda khusus) ──
+      const TX_START        = '===TRANSACTION_START==='
+      const TX_END          = '===TRANSACTION_END==='
+      const daftarTransaksi = ekstrakTransaksi(aiText)
+      for (const txData of daftarTransaksi) {
+        await simpanTransaksi(txData)
       }
-      // Kalau tidak ada markdown block, coba JSON mentah
-      if (txAllMatches.length === 0) {
-        const txRawRegex = /\{[\s\S]*?"type"\s*:\s*"TRANSACTION"[\s\S]*?\}/g
-        let txRaw
-        while ((txRaw = txRawRegex.exec(aiText)) !== null) {
-          txAllMatches.push({ full: txRaw[0], json: txRaw[0] })
+      // Bersihkan semua blok transaksi dari aiText
+      if (daftarTransaksi.length > 0) {
+        let cleaned = aiText
+        while (cleaned.indexOf(TX_START) !== -1) {
+          const s = cleaned.indexOf(TX_START)
+          const e = cleaned.indexOf(TX_END)
+          if (s === -1 || e === -1) break
+          cleaned = (cleaned.substring(0, s) + cleaned.substring(e + TX_END.length)).trim()
         }
-      }
-      for (const match of txAllMatches) {
-        try {
-          const txData = JSON.parse(match.json)
-          if (txData.type === 'TRANSACTION') {
-            await simpanTransaksi(txData.data)
-            aiText = aiText.replace(match.full, '').trim()
-          }
-        } catch (e) {
-          console.error('TX parse error:', e)
-        }
+        aiText = cleaned
       }
 
-      // Tampilkan respons AI (pesanSukses sudah digabung ke aiText di atas)
-      if (aiText) {
+      // ── Tampilkan respons AI (jika belum ditangani budget plan) ──────
+      if (aiText && !budgetPlan) {
         setMessages(prev => [...prev, { role: 'assistant', content: aiText }])
         try { await simpanPesan('assistant', aiText) } catch (e) {
           console.warn('Gagal simpan respons AI:', e)
