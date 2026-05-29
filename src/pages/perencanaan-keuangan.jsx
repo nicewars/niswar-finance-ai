@@ -124,11 +124,14 @@ async function saveBudgetPlan(draft, sessionData, periodeData, sb) {
   if (!draft || !sessionData || !periodeData) return null
 
   try {
-    // Fetch semua akun milik user
-    const { data: semuaAkun } = await sb
+    // Fetch semua akun milik user (data lengkap untuk keperluan create baru)
+    const { data: semuaAkunRaw } = await sb
       .from('accounts')
-      .select('id, name')
+      .select('id, name, category, parent_id, order_index')
       .eq('user_id', sessionData.user.id)
+
+    // Buat array mutable — iterasi berikutnya bisa mencocokkan akun yang baru dibuat
+    const semuaAkun = [...(semuaAkunRaw || [])]
 
     // Upsert budget_plan untuk periode ini
     await sb.from('budget_plans').upsert({
@@ -141,23 +144,27 @@ async function saveBudgetPlan(draft, sessionData, periodeData, sb) {
       ai_summary:      draft.ai_summary || '',
     }, { onConflict: 'user_id,plan_month' })
 
-    // Update setiap akun yang disebutkan AI
+    // Update akun yang ada ATAU buat akun baru jika belum ada
     for (const item of (draft.accounts_update || [])) {
       if (!item.name || !item.monthly_budget) continue
 
       const namaCari = item.name.toLowerCase()
-        .replace(/^(tabungan|investasi|zakat):\s*/, '')
+        .replace(/^(tabungan|investasi|zakat|sinking fund):\s*/, '')
         .trim()
 
-      const cocok = semuaAkun?.find(a => {
+      // Cari akun yang paling cocok (exact match dulu, baru contains)
+      const cocok = semuaAkun.find(a => {
         const n = a.name.toLowerCase()
-        return n.includes(namaCari) || namaCari.includes(n)
+        return n === namaCari || n.includes(namaCari) || namaCari.includes(n)
       })
 
       if (cocok) {
+        // ── CASE 1: Akun sudah ada → UPDATE ──────────────────────────
         await sb.from('accounts').update({
           monthly_budget:       item.monthly_budget || 0,
-          budget_type:          item.budget_type || 'fixed_monthly',
+          budget_type:          item.budget_type === 'one_time'
+                                  ? 'fixed_monthly'
+                                  : (item.budget_type || 'fixed_monthly'),
           period_amount:        item.period_amount || null,
           period_months:        item.period_months || null,
           next_occurrence_date: item.next_occurrence_date || null,
@@ -165,6 +172,46 @@ async function saveBudgetPlan(draft, sessionData, periodeData, sb) {
           target_date:          item.target_date || null,
           priority_tier:        item.priority_tier || 6,
         }).eq('id', cocok.id)
+
+      } else {
+        // ── CASE 2: Akun belum ada → INSERT baru ─────────────────────
+        // Cari parent berdasarkan parent_name dari AI
+        let parentId = null
+        if (item.parent_name) {
+          const parentCari = item.parent_name.toLowerCase().trim()
+          const parentCocok = semuaAkun.find(a => {
+            const n = a.name.toLowerCase()
+            return n === parentCari || n.includes(parentCari) || parentCari.includes(n)
+          })
+          parentId = parentCocok?.id || null
+        }
+
+        // order_index = max yang ada + 1
+        const maxOrder = semuaAkun.reduce(
+          (m, a) => Math.max(m, a.order_index || 0), 0
+        )
+
+        const { data: akunBaru } = await sb.from('accounts').insert({
+          user_id:              sessionData.user.id,
+          name:                 item.name,
+          category:             item.category || 'expense',
+          parent_id:            parentId,
+          monthly_budget:       item.monthly_budget || 0,
+          budget_type:          item.budget_type === 'one_time'
+                                  ? 'fixed_monthly'
+                                  : (item.budget_type || 'fixed_monthly'),
+          period_amount:        item.period_amount || null,
+          period_months:        item.period_months || null,
+          next_occurrence_date: item.next_occurrence_date || null,
+          target_amount:        item.target_amount || null,
+          target_date:          item.target_date || null,
+          priority_tier:        item.priority_tier || 6,
+          order_index:          maxOrder + 1,
+          is_active:            true,
+        }).select('id, name, category, parent_id, order_index').single()
+
+        // Tambahkan ke array lokal agar iterasi berikutnya bisa match
+        if (akunBaru) semuaAkun.push(akunBaru)
       }
     }
 
@@ -420,6 +467,27 @@ function PerencanaanKeuangan() {
       console.warn('Gagal fetch akun untuk prompt:', e)
     }
 
+    // ── Fetch struktur akun untuk aturan pengelolaan ─
+    let akunLeaf  = 'Belum ada akun'
+    let akunInduk = 'Belum ada kategori'
+    try {
+      const { data: daftarAkun } = await supabase
+        .from('accounts')
+        .select('id, name, category, parent_id')
+        .eq('user_id', session.user.id)
+        .order('order_index', { ascending: true })
+
+      if (daftarAkun?.length > 0) {
+        const leafList  = daftarAkun.filter(a => a.parent_id !== null).map(a => a.name)
+        const indukList = daftarAkun.filter(a => a.parent_id === null)
+          .map(a => a.name + ' (kategori: ' + a.category + ')')
+        akunLeaf  = leafList.join(', ')  || 'Belum ada akun'
+        akunInduk = indukList.join(', ') || 'Belum ada kategori'
+      }
+    } catch (e) {
+      console.warn('Gagal fetch struktur akun:', e)
+    }
+
     // ── Hitung data keuangan dari profil ──────────────
     const gajiPokok       = profile.gaji_pokok      || 0
     const tunjanganTetap  = profile.tunjangan_tetap  || 0
@@ -563,7 +631,7 @@ TAHAP H — RINGKASAN:
 
 TAHAP I — KONFIRMASI & OUTPUT JSON:
   Jika pengguna setuju, OUTPUT JSON PERSIS seperti ini (tidak ada teks lain):
-  {"type":"BUDGET_PLAN","data":{"total_income":0,"accounts_update":[{"name":"nama akun","monthly_budget":0,"budget_type":"fixed_monthly","period_amount":null,"period_months":null,"next_occurrence_date":null,"target_amount":null,"target_date":null,"accumulated_amount":null,"priority_tier":1,"price_buffer_pct":0}],"ai_summary":"ringkasan"}}
+  {"type":"BUDGET_PLAN","data":{"total_income":0,"accounts_update":[{"name":"nama akun (pakai nama persis jika sudah ada, atau nama baru)","parent_name":"nama akun induk (isi HANYA jika akun baru, kosongkan jika sudah ada)","category":"expense","monthly_budget":0,"budget_type":"fixed_monthly","period_amount":null,"period_months":null,"next_occurrence_date":null,"target_amount":null,"target_date":null,"accumulated_amount":null,"priority_tier":1,"price_buffer_pct":0}],"ai_summary":"ringkasan"}}
 
 GAYA KOMUNIKASI:
 - Gunakan "kamu" bukan "Anda"
@@ -574,6 +642,17 @@ GAYA KOMUNIKASI:
 - Jangan tampilkan semua pertanyaan sekaligus
 
 GUNAKAN WEB SEARCH untuk: harga emas terkini, harga beras/kg, harga kambing qurban.
+
+ATURAN PENGELOLAAN AKUN ANGGARAN:
+Daftar akun yang SUDAH ADA milik pengguna:
+- Sub-akun (leaf): ${akunLeaf}
+- Akun induk (kategori): ${akunInduk}
+
+Ketika membuat BUDGET_PLAN JSON, WAJIB ikuti aturan ini:
+1. Jika nama akun SUDAH ADA di daftar sub-akun → gunakan nama yang PERSIS SAMA (tidak diubah).
+2. Jika belum ada → buat akun baru, sertakan field "parent_name" (nama akun induk yang paling cocok dari daftar akun induk) dan "category" (income | expense | savings | investment | debt).
+3. JANGAN buat duplikat — cek dulu sebelum membuat akun baru.
+4. Nilai "budget_type" hanya boleh: "fixed_monthly", "sinking_fund", atau "savings_goal". JANGAN gunakan "one_time".
 
 MODE ASISTEN HARIAN — mencatat pengeluaran:
 Ketika pengguna berkata "tadi beli bensin 50rb" atau "habis makan siang 35 ribu",
