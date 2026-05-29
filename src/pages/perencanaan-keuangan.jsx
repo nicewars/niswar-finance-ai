@@ -203,8 +203,9 @@ function PerencanaanKeuangan() {
   const [chatMode,  setChatMode]  = useState(null)
   // chatMode: null | 'interview' | 'review' | 'daily'
 
-  const messagesEndRef = useRef(null)
-  const inputRef       = useRef(null)
+  const messagesEndRef  = useRef(null)
+  const inputRef        = useRef(null)
+  const hasInitialized  = useRef(false)  // guard agar initChat hanya berjalan sekali
 
   const now        = new Date()
   const bulanLabel = `${BULAN_ID[now.getMonth()]} ${now.getFullYear()}`
@@ -249,23 +250,7 @@ function PerencanaanKeuangan() {
             current_period_end:   per.end,
           }).eq('id', sess.user.id)
         }
-
-        // Load riwayat chat periode ini (jika ada)
-        const { data: chatHistory } = await supabase
-          .from('chat_messages')
-          .select('role, content, created_at')
-          .eq('user_id', sess.user.id)
-          .eq('period_start', per.start)
-          .order('created_at', { ascending: true })
-
-        if (chatHistory && chatHistory.length > 0) {
-          setMessages(chatHistory.map(m => ({
-            role:    m.role,
-            content: m.content,
-          })))
-        }
-        // Jika tidak ada riwayat → messages tetap []
-        // → useEffect 2 akan tentukan mode dan trigger AI
+        // Chat history & mode detection dilakukan di useEffect 2
 
       } catch (err) {
         console.error('Init error:', err)
@@ -276,54 +261,65 @@ function PerencanaanKeuangan() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── useEffect 2: Deteksi mode chat saat semua state siap ─────────
+  // ── useEffect 2: Inisialisasi chat (ref guard — hanya sekali) ─────
   useEffect(() => {
-    if (!session || !profile || !periode || !supabase) return
+    if (!session || !profile || !periode || !supabase
+        || hasInitialized.current) return
 
-    async function tentukanMode() {
-      // Cek apakah ada budget_plan yang sudah approved untuk periode ini
+    async function initChat() {
+      hasInitialized.current = true
+
+      // 1. Load riwayat chat dari database
+      const { data: riwayat } = await supabase
+        .from('chat_messages')
+        .select('role, content, created_at')
+        .eq('user_id', session.user.id)
+        .eq('period_start', periode.start)
+        .order('created_at', { ascending: true })
+
+      if (riwayat && riwayat.length > 0) {
+        // Ada riwayat → tampilkan, tidak mulai percakapan baru
+        setMessages(riwayat.map(m => ({ role: m.role, content: m.content })))
+        setChatMode('daily')
+        return
+      }
+
+      // 2. Tidak ada riwayat → cek apakah ada anggaran bulan ini
       const { data: planBulanIni } = await supabase
         .from('budget_plans')
-        .select('id, status')
+        .select('id')
         .eq('user_id', session.user.id)
         .eq('plan_month', periode.start)
         .eq('status', 'approved')
         .maybeSingle()
 
       if (planBulanIni) {
-        // Anggaran bulan ini sudah ada → mode asisten harian
+        // Anggaran ada, chat baru (misal: hapus history) → sapaan harian
         setChatMode('daily')
-        if (messages.length === 0) {
-          sendMessageToAI('DAILY_GREETING', 'daily')
-        }
+        await sendMessageToAI('DAILY_GREETING', 'daily')
         return
       }
 
-      // Cek apakah ada data bulan-bulan sebelumnya
-      const { data: planSebelumnya } = await supabase
+      // 3. Belum ada anggaran bulan ini → cek data bulan sebelumnya
+      const { data: planLalu } = await supabase
         .from('budget_plans')
-        .select('id, ai_summary, total_income')
+        .select('id, ai_summary')
         .eq('user_id', session.user.id)
-        .neq('plan_month', periode.start)
         .eq('status', 'approved')
         .order('plan_month', { ascending: false })
         .limit(1)
         .maybeSingle()
 
-      if (planSebelumnya) {
-        // Ada data bulan lalu → lakukan review cepat
+      if (planLalu) {
         setChatMode('review')
-        sendMessageToAI('START_REVIEW', 'review')
+        await sendMessageToAI('START_REVIEW', 'review')
       } else {
-        // Belum pernah ada anggaran sama sekali → wawancara penuh
         setChatMode('interview')
-        sendMessageToAI('START_ONBOARDING', 'interview')
+        await sendMessageToAI('START_ONBOARDING', 'interview')
       }
     }
 
-    if (messages.length === 0) {
-      tentukanMode()
-    }
+    initChat()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, profile, periode])
 
@@ -620,61 +616,67 @@ langsung ekstrak dan output format JSON:
       }
 
       // ── Deteksi dan auto-save BUDGET_PLAN JSON ──────
-      let pesanSukses = null
-      const jsonRegex = /\{[\s\S]*?"type"\s*:\s*"BUDGET_PLAN"[\s\S]*?\}/g
-      const jsonMatches = aiText.match(jsonRegex)
+      // Coba markdown code block dulu, lalu JSON mentah
+      const bpMdRegex  = /```(?:json)?\s*(\{[\s\S]*?"type"\s*:\s*"BUDGET_PLAN"[\s\S]*?\})\s*```/
+      const bpRawRegex = /(\{[\s\S]*?"type"\s*:\s*"BUDGET_PLAN"[\s\S]*?\})/
+      const bpMdMatch  = aiText.match(bpMdRegex)
+      const bpRawMatch = aiText.match(bpRawRegex)
+      const bpJsonStr  = bpMdMatch ? bpMdMatch[1] : bpRawMatch ? bpRawMatch[1] : null
 
-      if (jsonMatches) {
+      if (bpJsonStr) {
         try {
-          const budgetData = JSON.parse(jsonMatches[0])
+          const budgetData = JSON.parse(bpJsonStr)
           if (budgetData.type === 'BUDGET_PLAN') {
-            // Auto-save langsung tanpa konfirmasi user
-            pesanSukses = await saveBudgetPlan(
-              budgetData.data,
-              session,
-              periode,
-              supabase
+            const pesanSukses = await saveBudgetPlan(
+              budgetData.data, session, periode, supabase
             )
-            // Setelah save, pindah ke mode harian
             setChatMode('daily')
-            // Hapus JSON mentah dari teks yang ditampilkan
-            aiText = aiText.replace(jsonMatches[0], '').trim()
+            // Hapus seluruh blok JSON (termasuk code fence) dari teks AI
+            aiText = aiText
+              .replace(bpMdMatch ? bpMdMatch[0] : bpJsonStr, '')
+              .trim()
+            // Gabungkan pesan sukses ke dalam aiText yang sama
+            if (pesanSukses) {
+              aiText = aiText ? aiText + '\n\n' + pesanSukses : pesanSukses
+            }
           }
         } catch (e) {
-          console.error('Budget plan parse error:', e)
+          console.error('Budget JSON parse error:', e)
         }
       }
 
-      // ── Deteksi TRANSACTION JSON ────────────────────
-      const txRegex   = /\{[\s\S]*?"type"\s*:\s*"TRANSACTION"[\s\S]*?\}/g
-      const txMatches = aiText.match(txRegex)
-      if (txMatches) {
-        for (const txJson of txMatches) {
-          try {
-            const txData = JSON.parse(txJson)
-            if (txData.type === 'TRANSACTION') {
-              await simpanTransaksi(txData.data)
-              aiText = aiText.replace(txJson, '').trim()
-            }
-          } catch (e) {
-            console.error('TX parse error:', e)
+      // ── Deteksi TRANSACTION JSON (markdown atau raw) ─
+      const txAllMatches = []
+      const txMdRegex = /```(?:json)?\s*(\{[\s\S]*?"type"\s*:\s*"TRANSACTION"[\s\S]*?\})\s*```/g
+      let txMd
+      while ((txMd = txMdRegex.exec(aiText)) !== null) {
+        txAllMatches.push({ full: txMd[0], json: txMd[1] })
+      }
+      // Kalau tidak ada markdown block, coba JSON mentah
+      if (txAllMatches.length === 0) {
+        const txRawRegex = /\{[\s\S]*?"type"\s*:\s*"TRANSACTION"[\s\S]*?\}/g
+        let txRaw
+        while ((txRaw = txRawRegex.exec(aiText)) !== null) {
+          txAllMatches.push({ full: txRaw[0], json: txRaw[0] })
+        }
+      }
+      for (const match of txAllMatches) {
+        try {
+          const txData = JSON.parse(match.json)
+          if (txData.type === 'TRANSACTION') {
+            await simpanTransaksi(txData.data)
+            aiText = aiText.replace(match.full, '').trim()
           }
+        } catch (e) {
+          console.error('TX parse error:', e)
         }
       }
 
-      // Tampilkan teks respons AI (jika ada)
+      // Tampilkan respons AI (pesanSukses sudah digabung ke aiText di atas)
       if (aiText) {
         setMessages(prev => [...prev, { role: 'assistant', content: aiText }])
         try { await simpanPesan('assistant', aiText) } catch (e) {
           console.warn('Gagal simpan respons AI:', e)
-        }
-      }
-
-      // Tampilkan pesan sukses budget plan (jika ada)
-      if (pesanSukses) {
-        setMessages(prev => [...prev, { role: 'assistant', content: pesanSukses }])
-        try { await simpanPesan('assistant', pesanSukses) } catch (e) {
-          console.warn('Gagal simpan pesan sukses:', e)
         }
       }
 
